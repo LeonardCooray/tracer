@@ -11,10 +11,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: AppController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let c = AppController()
-        controller = c
         #if DEBUG
+        let c = DebugSelfTest.isRequested ? AppController(defaults: DebugSelfTest.isolatedDefaults()) : AppController()
+        controller = c
         DebugSelfTest.runIfRequested(c)
+        #else
+        controller = AppController()
         #endif
     }
 }

@@ -44,3 +44,11 @@ import Testing
     m.mode = .frozen
     #expect(!m.hasFadingStrokes)
 }
+
+@Test func recorderProblems() {
+    let cap = Hotkey.defaultCapture
+    #expect(hotkeyProblem(cap, other: cap, otherName: "Capture") == "Already used for Capture")
+    #expect(hotkeyProblem(Hotkey(keyCode: KeyCode.four, modifiers: Hotkey.shift | Hotkey.command), other: cap, otherName: "Capture") == "⇧⌘4 is used by macOS")
+    #expect(hotkeyProblem(Hotkey(keyCode: KeyCode.a, modifiers: Hotkey.shift), other: cap, otherName: "Capture") == "Add ⌃, ⌥ or ⌘")
+    #expect(hotkeyProblem(Hotkey(keyCode: KeyCode.a, modifiers: Hotkey.control), other: cap, otherName: "Capture") == nil)
+}

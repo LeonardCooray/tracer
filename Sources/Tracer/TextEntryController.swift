@@ -7,6 +7,7 @@ final class TextEntryController: NSObject, NSTextFieldDelegate {
     private weak var view: InkView?
     private var style: StrokeStyle?
     var onBegan: () -> Void = {}
+    private var returnTo: NSRunningApplication?
     var onEnded: () -> Void = {}
 
     var isEditing: Bool { field != nil }
@@ -36,6 +37,8 @@ final class TextEntryController: NSObject, NSTextFieldDelegate {
         self.view = view
         self.style = style
         panel.allowsKey = true
+        let front = NSWorkspace.shared.frontmostApplication
+        returnTo = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(f)
@@ -62,6 +65,8 @@ final class TextEntryController: NSObject, NSTextFieldDelegate {
         field = nil
         panel?.allowsKey = false
         onEnded()
+        if let app = returnTo { app.activate() } else { NSApp.deactivate() }
+        returnTo = nil
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {

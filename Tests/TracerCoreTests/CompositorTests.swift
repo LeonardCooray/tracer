@@ -45,3 +45,14 @@ private func redPixels(_ img: CGImage) -> Int {
 @Test func compositeRejectsSelectionOutsideImage() {
     #expect(Compositor.image(base: base(px: 200), baseScale: 2, strokes: [], selection: CGRect(x: 500, y: 500, width: 50, height: 50)) == nil)
 }
+
+@Test func compositeHighlighterUsesMultiply() {
+    let black = Canvas(size: 200, background: RGBA(hex: 0x000000)).ctx.makeImage()!
+    let s = Stroke(tool: .highlighter, points: [CGPoint(x: 0, y: 35), CGPoint(x: 100, y: 35)],
+                   style: StrokeStyle(color: RGBA(hex: 0xFFFF00), width: 18), finishedAt: 0)
+    let out = Compositor.image(base: black, baseScale: 2, strokes: [s], selection: CGRect(x: 10, y: 10, width: 50, height: 50))!
+    let c = Canvas(size: 100)
+    c.ctx.draw(out, in: CGRect(x: 0, y: 0, width: 100, height: 100))
+    let p = c.pixel(50, 50)
+    #expect(p.r < 30 && p.g < 30)
+}

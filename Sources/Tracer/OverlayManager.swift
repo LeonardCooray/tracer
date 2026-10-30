@@ -29,6 +29,13 @@ final class OverlayManager {
         }
     }
 
+    #if DEBUG
+    func forgetPanels() {
+        panels.values.forEach { $0.orderOut(nil) }
+        panels = [:]; inkViews = [:]; frozenViews = [:]; captureViews = [:]
+    }
+    #endif
+
     func screen(of id: CGDirectDisplayID) -> NSScreen? { NSScreen.screens.first { $0.displayID == id } }
 
     // Keeps overlays (and their ink) for displays that remain, adds new ones, drops removed ones.

@@ -95,3 +95,22 @@ private func finishedStroke(_ m: InkModel, at time: Double, pinned: Bool = false
     #expect(InkPalette.presets.count == 5)
     #expect(InkPalette.presets[0] == RGBA(hex: 0xFF453A))
 }
+
+@Test func removeStrokeByID() {
+    let m = InkModel(mode: .live(delay: 3))
+    finishedStroke(m, at: 1)
+    finishedStroke(m, at: 2)
+    let firstID = m.strokes[0].id
+    #expect(m.remove(id: firstID))
+    #expect(m.strokes.count == 1 && m.strokes[0].finishedAt == 2)
+    #expect(!m.remove(id: firstID))
+}
+
+@Test func tracksStrokeInProgress() {
+    let m = InkModel(mode: .live(delay: 3))
+    #expect(!m.isDrawing)
+    m.begin(tool: .pen, style: red, at: .zero, pinned: false)
+    #expect(m.isDrawing)
+    m.end(at: 1)
+    #expect(!m.isDrawing)
+}
