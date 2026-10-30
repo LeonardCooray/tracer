@@ -4,7 +4,9 @@ import AppKit
 final class OverlayManager {
     private(set) var panels: [CGDirectDisplayID: OverlayPanel] = [:]
     private(set) var inkViews: [CGDirectDisplayID: InkView] = [:]
-    var configureView: ((InkView) -> Void)?
+    private(set) var frozenViews: [CGDirectDisplayID: FrozenView] = [:]
+    private(set) var captureViews: [CGDirectDisplayID: CaptureView] = [:]
+    var configureView: ((InkView, CaptureView) -> Void)?
 
     func show(interactive: Bool) {
         if panels.isEmpty { build() }
@@ -22,21 +24,29 @@ final class OverlayManager {
         }
     }
 
-    func inkView(at screenPoint: NSPoint) -> InkView? {
-        guard let id = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) })?.displayID else { return nil }
-        return inkViews[id]
-    }
+    func screen(of id: CGDirectDisplayID) -> NSScreen? { NSScreen.screens.first { $0.displayID == id } }
 
     private func build() {
         for screen in NSScreen.screens {
             guard let id = screen.displayID else { continue }
             let panel = OverlayPanel(screen: screen)
-            let view = InkView(frame: NSRect(origin: .zero, size: screen.frame.size))
-            view.autoresizingMask = [.width, .height]
-            panel.contentView = view
-            configureView?(view)
+            let bounds = NSRect(origin: .zero, size: screen.frame.size)
+            let container = NSView(frame: bounds)
+            let frozen = FrozenView(frame: bounds)
+            let ink = InkView(frame: bounds)
+            let capture = CaptureView(frame: bounds)
+            capture.inkView = ink
+            capture.isHidden = true
+            for v in [frozen, ink, capture] as [NSView] {
+                v.autoresizingMask = [.width, .height]
+                container.addSubview(v)
+            }
+            panel.contentView = container
+            configureView?(ink, capture)
             panels[id] = panel
-            inkViews[id] = view
+            inkViews[id] = ink
+            frozenViews[id] = frozen
+            captureViews[id] = capture
         }
     }
 }

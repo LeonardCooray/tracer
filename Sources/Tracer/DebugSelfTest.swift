@@ -12,6 +12,7 @@ enum DebugSelfTest {
             switch args[i + 1] {
             case "live": await live(c)
             case "tools": await tools(c)
+            case "capture": await capture(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -116,6 +117,106 @@ enum DebugSelfTest {
         c.send(.penHotkey)
         await pause(0.4)
         check(!c.dock.isVisible, "dock hidden after drawing ends")
+    }
+
+    final class FakeCapturer: ScreenCapturing {
+        var hasPermission: Bool { true }
+        func requestPermission() {}
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] {
+            var out: [CGDirectDisplayID: FrozenFrame] = [:]
+            for s in NSScreen.screens {
+                guard let id = s.displayID else { continue }
+                let scale = s.backingScaleFactor
+                let w = Int(s.frame.width * scale), h = Int(s.frame.height * scale)
+                let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+                ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+                out[id] = FrozenFrame(image: ctx.makeImage()!, scale: scale)
+            }
+            return out
+        }
+    }
+
+    static func capture(_ c: AppController) async {
+        c.capturer = FakeCapturer()
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("tracer-selftest-\(UUID().uuidString)")
+        c.saveFolder = tmp
+        c.requestCapture()
+        await pause(0.5)
+        guard let (id, cv) = c.overlays.captureViews.first, let v = c.overlays.inkViews[id],
+              let screen = c.overlays.screen(of: id), let w = cv.window else { return }
+        check(c.session.mode == .capturing, "capture hotkey enters capturing")
+        check(c.overlays.frozenViews[id]?.isHidden == false && !cv.isHidden, "screen frozen and selection layer shown")
+        check(!c.dock.isVisible, "no dock before a selection")
+        check(!v.showsCursorRing && !v.showsPointerLabel, "no cursor ring or label over a capture")
+
+        func dragCV(_ a: NSPoint, _ b: NSPoint) {
+            cv.mouseDown(with: mouse(.leftMouseDown, a, in: w))
+            for t in stride(from: 0.2, through: 1, by: 0.2) {
+                cv.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t), in: w))
+            }
+            cv.mouseUp(with: mouse(.leftMouseUp, b, in: w))
+        }
+
+        dragCV(NSPoint(x: 300, y: 300), NSPoint(x: 300, y: 300))
+        check(cv.selection == nil && !c.dockState.canOutput, "click without drag makes no selection")
+        dragCV(NSPoint(x: 302, y: 302), NSPoint(x: 304, y: 305))
+        check(cv.selection == nil, "tiny drag makes no selection")
+
+        dragCV(NSPoint(x: 300, y: 300), NSPoint(x: 700, y: 600))
+        check(cv.selection == CGRect(x: 300, y: 300, width: 400, height: 300), "drag makes selection (\(String(describing: cv.selection)))")
+        check(c.dock.isVisible && c.dockState.canOutput && c.dockState.mode == .capturing, "dock appears with copy/save enabled")
+        check(abs(c.dock.frame.minX - (screen.frame.minX + 708)) < 1 && abs(c.dock.frame.maxY - (screen.frame.minY + 600)) < 1,
+              "dock snapped beside selection (\(c.dock.frame))")
+
+        dragCV(NSPoint(x: 500, y: 450), NSPoint(x: 520, y: 470))
+        check(cv.selection == CGRect(x: 320, y: 320, width: 400, height: 300), "drag inside moves selection before a tool is picked")
+        dragCV(NSPoint(x: 720, y: 620), NSPoint(x: 760, y: 640))
+        check(cv.selection == CGRect(x: 320, y: 320, width: 440, height: 320), "corner drag resizes (\(String(describing: cv.selection)))")
+
+        c.send(.command(.selectTool(.spotlight)))
+        check(c.tool != .spotlight, "spotlight not selectable in capture")
+        c.send(.command(.selectTool(.arrow)))
+        dragCV(NSPoint(x: 400, y: 400), NSPoint(x: 600, y: 500))
+        check(v.model.strokes.count == 1 && v.model.strokes[0].tool == .arrow, "with a tool picked, drag inside draws")
+        check(v.model.opacity(of: v.model.strokes[0], at: InkView.now + 100) == 1, "capture ink never fades")
+        let before = cv.selection
+
+        c.send(.command(.copy))
+        await pause(0.2)
+        check(c.session.mode == .idle && !(c.overlays.panels[id]?.isVisible ?? true), "copy ends capture and hides overlays")
+        let data = NSPasteboard.general.data(forType: .png)
+        let rep = data.flatMap { NSBitmapImageRep(data: $0) }
+        let sel = before!
+        check(rep?.pixelsWide == Int(sel.width * screen.backingScaleFactor) && rep?.pixelsHigh == Int(sel.height * screen.backingScaleFactor),
+              "clipboard PNG at full Retina size (\(rep?.pixelsWide ?? 0)×\(rep?.pixelsHigh ?? 0))")
+        var red = 0
+        if let rep { for y in stride(from: 0, to: rep.pixelsHigh, by: 4) { for x in stride(from: 0, to: rep.pixelsWide, by: 4) {
+            if let px = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), px.redComponent > 0.8, px.greenComponent < 0.4 { red += 1 }
+        } } }
+        check(red > 20, "clipboard image includes the arrow")
+
+        c.format = .jpeg
+        c.requestCapture()
+        await pause(0.5)
+        dragCV(NSPoint(x: 100, y: 100), NSPoint(x: 300, y: 250))
+        c.send(.command(.save))
+        await pause(0.2)
+        let saved = c.lastSavedURL
+        check(saved?.pathExtension == "jpg" && saved.map { FileManager.default.fileExists(atPath: $0.path) } == true,
+              "save writes a dated JPEG to the folder (\(saved?.lastPathComponent ?? "nil"))")
+        check(saved?.lastPathComponent.hasPrefix("Tracer ") == true, "file named by date and time")
+        c.format = .png
+
+        c.send(.penHotkey)
+        drag(v, from: NSPoint(x: 200, y: 200), to: NSPoint(x: 400, y: 200))
+        c.requestCapture()
+        await pause(0.5)
+        check(c.session.mode == .capturing && v.model.strokes.count == 1, "capture from drawing keeps the ink")
+        c.send(.escape)
+        check(c.session.mode == .idle && v.model.strokes.isEmpty, "escape cancels capture")
+        try? FileManager.default.removeItem(at: tmp)
     }
 
     static func live(_ c: AppController) async {

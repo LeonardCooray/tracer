@@ -114,7 +114,10 @@ final class DockPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
 
-    var fittingSize: NSSize { host.fittingSize }
+    var fittingSize: NSSize {
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize
+    }
 
     func slideIn(onRightEdgeOf screen: NSScreen) {
         let size = fittingSize
