@@ -7,8 +7,10 @@ CONFIG=release
 [[ "${1:-}" == "--debug" ]] && CONFIG=debug
 IDENTITY="${TRACER_SIGN_IDENTITY:-Tracer Local Signing}"
 
-swift build -c "$CONFIG"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/Tracer"
+# Own scratch path: a release build in .build breaks swift test's macro plugins.
+SCRATCH=build/.swiftpm-build
+swift build -c "$CONFIG" --scratch-path "$SCRATCH"
+BIN="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH" --show-bin-path)/Tracer"
 
 APP=build/Tracer.app
 rm -rf "$APP"
