@@ -1,0 +1,47 @@
+import CoreGraphics
+import Testing
+@testable import TracerCore
+
+private func base(px: Int) -> CGImage {
+    Canvas(size: px, background: RGBA(hex: 0xFFFFFF)).ctx.makeImage()!
+}
+
+private func redPixels(_ img: CGImage) -> Int {
+    let c = Canvas(size: max(img.width, img.height))
+    c.ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+    var n = 0
+    for y in 0..<img.height { for x in 0..<img.width {
+        let p = c.pixel(x, y)
+        if p.r > 200 && p.g < 80 && p.b < 80 { n += 1 }
+    } }
+    return n
+}
+
+@Test func compositeIsFullResolution() {
+    let out = Compositor.image(base: base(px: 200), baseScale: 2, strokes: [], selection: CGRect(x: 10, y: 10, width: 50, height: 50))!
+    #expect(out.width == 100 && out.height == 100)
+}
+
+@Test func compositeIncludesInk() {
+    let s = Stroke(tool: .pen, points: [CGPoint(x: 0, y: 35), CGPoint(x: 100, y: 35)],
+                   style: StrokeStyle(color: RGBA(hex: 0xFF0000), width: 4), finishedAt: 0)
+    let out = Compositor.image(base: base(px: 200), baseScale: 2, strokes: [s], selection: CGRect(x: 10, y: 10, width: 50, height: 50))!
+    #expect(redPixels(out) > 100)
+}
+
+@Test func compositeCropsToSelection() {
+    let s = Stroke(tool: .pen, points: [CGPoint(x: 0, y: 90), CGPoint(x: 100, y: 90)],
+                   style: StrokeStyle(color: RGBA(hex: 0xFF0000), width: 4), finishedAt: 0)
+    let out = Compositor.image(base: base(px: 200), baseScale: 2, strokes: [s], selection: CGRect(x: 10, y: 10, width: 50, height: 50))!
+    #expect(redPixels(out) == 0)
+}
+
+@Test func compositeSkipsSpotlight() {
+    let s = Stroke(tool: .spotlight, points: [CGPoint(x: 20, y: 20)], style: StrokeStyle(color: RGBA(hex: 0xFF0000), width: 4))
+    let out = Compositor.image(base: base(px: 200), baseScale: 2, strokes: [s], selection: CGRect(x: 10, y: 10, width: 50, height: 50))!
+    #expect(redPixels(out) == 0)
+}
+
+@Test func compositeRejectsSelectionOutsideImage() {
+    #expect(Compositor.image(base: base(px: 200), baseScale: 2, strokes: [], selection: CGRect(x: 500, y: 500, width: 50, height: 50)) == nil)
+}
