@@ -14,6 +14,7 @@ enum DebugSelfTest {
             case "tools": await tools(c)
             case "capture": await capture(c)
             case "settings": await settings(c)
+            case "displays": await displays(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -262,6 +263,29 @@ enum DebugSelfTest {
         check(w?.isVisible == true && w?.title == "Tracer Settings", "settings window opens")
         check((w?.frame.height ?? 0) > 200, "settings window has content (\(w?.frame.size ?? .zero))")
         w?.close()
+    }
+
+    static func displays(_ c: AppController) async {
+        c.send(.penHotkey)
+        await pause(0.4)
+        guard let (id, v) = c.overlays.inkViews.first else { return }
+        drag(v, from: NSPoint(x: 200, y: 300), to: NSPoint(x: 600, y: 300), shift: true)
+        c.screensChanged()
+        await pause(0.4)
+        check(c.overlays.inkViews[id] === v && v.model.strokes.count == 1, "display change keeps ink on remaining screens")
+        check(c.overlays.panels.count == NSScreen.screens.count, "overlay count matches displays after change")
+        check(c.overlays.panels.values.allSatisfy { $0.isVisible && !$0.ignoresMouseEvents }, "overlays stay up and interactive")
+        check(c.dock.isVisible, "dock still shown")
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "undo still works after display change")
+        c.send(.penHotkey)
+
+        c.capturer = FakeCapturer()
+        c.requestCapture()
+        await pause(0.4)
+        c.screensChanged()
+        check(c.session.mode == .idle, "display change cancels an in-progress capture")
+        check(c.overlays.panels.values.allSatisfy { !$0.isVisible }, "overlays hidden after cancelled capture")
     }
 
     static func live(_ c: AppController) async {

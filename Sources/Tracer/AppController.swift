@@ -20,6 +20,7 @@ final class AppController: NSObject {
     lazy var settingsModel = SettingsModel(settings: settings)
     lazy var settingsWindow = SettingsWindowController(model: settingsModel)
     private var ringTimer: Timer?
+    private var dockDisplay: CGDirectDisplayID?
     private(set) var lastSavedURL: URL?
     private(set) var frames: [CGDirectDisplayID: FrozenFrame] = [:]
     private var previousApp: NSRunningApplication?
@@ -52,6 +53,33 @@ final class AppController: NSObject {
         text.onBegan = { [weak self] in self?.send(.textEditingBegan) }
         text.onEnded = { [weak self] in self?.send(.textEditingEnded) }
         apply(settings, previous: nil)
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.screensChanged() }
+        }
+    }
+
+    func screensChanged() {
+        if session.mode == .capturing { send(.escape) }
+        overlays.sync()
+        let live = Set(overlays.inkViews.values.map(ObjectIdentifier.init))
+        strokeOrder.removeAll { !live.contains(ObjectIdentifier($0)) }
+        if session.mode == .drawing {
+            enterLiveChrome(true)
+            if let id = dockDisplay, overlays.screen(of: id) == nil, let s = screenUnderPointer {
+                dockDisplay = s.displayID
+                dock.slideIn(onRightEdgeOf: s)
+            }
+        }
+        updateIdleRing()
+    }
+
+    private func pointerMoved(in view: InkView) {
+        guard session.mode == .drawing,
+              let id = overlays.inkViews.first(where: { $0.value === view })?.key,
+              id != dockDisplay, let screen = overlays.screen(of: id) else { return }
+        dockDisplay = id
+        dock.slideIn(onRightEdgeOf: screen)
     }
 
     func update(_ new: TracerSettings) {
@@ -113,6 +141,7 @@ final class AppController: NSObject {
 
     private func configure(_ ink: InkView, _ capture: CaptureView) {
         ink.onStrokeEnded = { [weak self] in self?.strokeOrder.append($0) }
+        ink.onPointerMoved = { [weak self] in self?.pointerMoved(in: $0) }
         ink.onTextClick = { [weak self] v, p in
             guard let self else { return }
             text.begin(at: p, in: v, style: currentStyle)
@@ -163,7 +192,10 @@ final class AppController: NSObject {
             if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = front }
             overlays.show(interactive: interactive)
             enterLiveChrome(session.mode == .drawing)
-            if session.mode == .drawing, let screen = screenUnderPointer { dock.slideIn(onRightEdgeOf: screen) }
+            if session.mode == .drawing, let screen = screenUnderPointer {
+                dockDisplay = screen.displayID
+                dock.slideIn(onRightEdgeOf: screen)
+            }
         case .hideOverlays:
             text.cancel()
             dock.slideOut()

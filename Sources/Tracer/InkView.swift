@@ -12,6 +12,7 @@ final class InkView: NSView {
     var showsCursorRing = false { didSet { needsDisplay = true } }
     var onStrokeEnded: ((InkView) -> Void)?
     var onTextClick: ((InkView, NSPoint) -> Void)?
+    var onPointerMoved: ((InkView) -> Void)?
     private(set) var pointer: NSPoint?
     private var shiftHeld = false
     private var link: CADisplayLink?
@@ -35,6 +36,7 @@ final class InkView: NSView {
         pointer = convert(event.locationInWindow, from: nil)
         shiftHeld = event.modifierFlags.contains(.shift)
         needsDisplay = true
+        onPointerMoved?(self)
     }
 
     func setPointer(_ p: NSPoint?) {
