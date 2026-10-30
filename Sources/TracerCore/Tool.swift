@@ -16,3 +16,10 @@ public enum Tool: Int, CaseIterable, Codable, Sendable {
 
     public var availableInCapture: Bool { self != .spotlight }
 }
+
+public func pointerLabel(tool: Tool, fadeDelay: Double, shiftHeld: Bool) -> String {
+    if tool == .spotlight { return tool.displayName }
+    if shiftHeld { return "\(tool.displayName) · stays" }
+    let n = fadeDelay.rounded() == fadeDelay ? String(Int(fadeDelay)) : String(fadeDelay)
+    return "\(tool.displayName) · fades \(n)s"
+}
