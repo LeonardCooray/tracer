@@ -59,6 +59,11 @@ public final class InkModel {
         return max(0, 1 - elapsed / Self.fadeOutDuration)
     }
 
+    public var hasFadingStrokes: Bool {
+        guard case .live = mode else { return false }
+        return strokes.contains { !$0.pinned && $0.finishedAt != nil }
+    }
+
     public func prune(at time: TimeInterval) {
         let active = activeIndex.map { strokes[$0].id }
         strokes.removeAll { $0.id != active && opacity(of: $0, at: time) == 0 }

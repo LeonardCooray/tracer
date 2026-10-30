@@ -8,9 +8,13 @@ app.run()
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var menuBar: MenuBarController?
+    private var controller: AppController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        menuBar = MenuBarController()
+        let c = AppController()
+        controller = c
+        #if DEBUG
+        DebugSelfTest.runIfRequested(c)
+        #endif
     }
 }
