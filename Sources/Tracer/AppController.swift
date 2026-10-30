@@ -32,6 +32,8 @@ final class AppController: NSObject {
     private(set) var hotkeyWarnings: [String] = []
     var presentAlert: @MainActor (_ title: String, _ body: String, _ offerSettings: Bool) -> Void = AppController.runAlert
 
+    var sessionKeyCount: Int { hotkeys.sessionKeyCount }
+
     var globalHotkeysRegistered: Bool { hotkeys.isRegistered(id: HotkeyID.pen) && hotkeys.isRegistered(id: HotkeyID.capture) }
 
     private enum HotkeyID { static let pen: UInt32 = 1, capture: UInt32 = 2 }
@@ -54,7 +56,10 @@ final class AppController: NSObject {
         dockState.onWidth = { [weak self] in self?.setWidth($0) }
         dockState.onMoreColors = { [weak self] in self?.showColorPanel() }
         text.onBegan = { [weak self] in self?.send(.textEditingBegan) }
-        text.onEnded = { [weak self] in self?.send(.textEditingEnded) }
+        text.onEnded = { [weak self] in
+            self?.send(.textEditingEnded)
+            self?.previousApp?.activate()
+        }
         apply(settings, previous: nil)
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
                                                queue: .main) { [weak self] _ in
@@ -63,6 +68,7 @@ final class AppController: NSObject {
     }
 
     func screensChanged() {
+        text.cancel()
         if session.mode == .capturing { send(.escape) }
         overlays.sync()
         let live = Set(overlays.inkViews.values.map(ObjectIdentifier.init))
@@ -147,6 +153,7 @@ final class AppController: NSObject {
         ink.onPointerMoved = { [weak self] in self?.pointerMoved(in: $0) }
         ink.onTextClick = { [weak self] v, p in
             guard let self else { return }
+            if text.isEditing { text.commit(); return }
             text.begin(at: p, in: v, style: currentStyle)
         }
         capture.onSelectionChanged = { [weak self] in self?.selectionChanged(in: $0) }
@@ -177,6 +184,7 @@ final class AppController: NSObject {
 
     func requestCapture() {
         guard session.mode != .capturing else { return }
+        if text.isEditing { text.commit() }
         guard capturer.hasPermission else {
             if session.mode == .drawing { send(.escape) }
             showPermissionAlert()

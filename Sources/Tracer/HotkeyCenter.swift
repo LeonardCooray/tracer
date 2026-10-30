@@ -35,6 +35,8 @@ final class HotkeyCenter {
 
     func isRegistered(id: UInt32) -> Bool { refs[id] != nil }
 
+    var sessionKeyCount: Int { sessionIDs.count }
+
     func unregister(id: UInt32) {
         if let ref = refs.removeValue(forKey: id) { UnregisterEventHotKey(ref) }
         Self.handlers[id] = nil

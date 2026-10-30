@@ -16,6 +16,7 @@ enum DebugSelfTest {
             case "settings": await settings(c)
             case "displays": await displays(c)
             case "review": await review(c)
+            case "text": await textEdits(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -109,7 +110,8 @@ enum DebugSelfTest {
         check(!c.session.isEditingText, "commit ends editing")
         check(v.model.strokes.last?.text == "Look here 123", "typed text stored (digits typed, not tools)")
         check(painted(v, at: NSPoint(x: 310, y: 205)), "text paints")
-        check(v.window?.isKeyWindow != true || !(v.window as! OverlayPanel).allowsKey, "overlay gives up key status after text")
+        await pause(0.4)
+        check(v.window?.isKeyWindow != true, "overlay gives up key status after text")
 
         v.onTextClick?(v, NSPoint(x: 300, y: 600))
         c.send(.escape)
@@ -377,6 +379,44 @@ enum DebugSelfTest {
         check(c.hotkeyWarnings.first?.contains("couldn't be registered") == true, "failed hotkey says it couldn't be registered (\(c.hotkeyWarnings))")
         squatter.unregister(id: 77)
         c.settingsModel.onRecording(false)
+    }
+
+    static func textEdits(_ c: AppController) async {
+        c.send(.penHotkey)
+        await pause(0.3)
+        guard let v = c.overlays.inkViews.values.first else { return }
+        func type(_ s: String) { v.subviews.compactMap { $0 as? NSTextField }.first?.stringValue = s }
+
+        c.send(.command(.selectTool(.text)))
+        v.onTextClick?(v, NSPoint(x: 300, y: 300))
+        type("first")
+        v.onTextClick?(v, NSPoint(x: 600, y: 600))
+        check(v.model.strokes.last?.text == "first", "click elsewhere commits the text")
+        check(!c.text.isEditing, "click elsewhere doesn't open another box")
+        check(c.sessionKeyCount > 0, "session keys back after the click-away commit")
+
+        v.onTextClick?(v, NSPoint(x: 300, y: 400))
+        type("before capture")
+        c.capturer = FakeCapturer()
+        c.requestCapture()
+        await pause(0.4)
+        check(v.model.strokes.contains { $0.text == "before capture" }, "capture hotkey while typing keeps the text")
+        check(!c.text.isEditing && !c.session.isEditingText, "capture hotkey while typing closes the box")
+        check(c.sessionKeyCount > 0, "capture keys registered after the box closes")
+
+        c.send(.command(.selectTool(.text)))
+        if let cv = c.overlays.captureViews.values.first, let w = cv.window {
+            cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+            cv.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 400, y: 400), in: w))
+        }
+        v.onTextClick?(v, NSPoint(x: 200, y: 200))
+        check(c.text.isEditing, "typing in capture")
+        c.screensChanged()
+        check(!c.text.isEditing && c.session.mode == .idle, "display change mid-typing closes the box and the capture")
+        c.requestCapture()
+        await pause(0.4)
+        check(c.sessionKeyCount > 0, "next capture still has its keys")
+        c.send(.escape)
     }
 
     static func live(_ c: AppController) async {
