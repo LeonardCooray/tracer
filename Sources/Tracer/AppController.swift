@@ -30,6 +30,9 @@ final class AppController: NSObject {
     private var width: Double?
     private var fadeDelay = FadeSetting.defaultDelay
     private(set) var hotkeyWarnings: [String] = []
+    var presentAlert: @MainActor (_ title: String, _ body: String, _ offerSettings: Bool) -> Void = AppController.runAlert
+
+    var globalHotkeysRegistered: Bool { hotkeys.isRegistered(id: HotkeyID.pen) && hotkeys.isRegistered(id: HotkeyID.capture) }
 
     private enum HotkeyID { static let pen: UInt32 = 1, capture: UInt32 = 2 }
 
@@ -153,11 +156,11 @@ final class AppController: NSObject {
     private func registerHotkeys() {
         var warnings: [String] = []
         let pen = settings.penHotkey, cap = settings.captureHotkey
-        if !hotkeys.register(pen, id: HotkeyID.pen, handler: { [weak self] in self?.send(.penHotkey) }) {
-            warnings.append("Draw hotkey \(pen.displayString) is taken by another app")
+        if !hotkeys.register(pen, id: HotkeyID.pen, exclusive: true, handler: { [weak self] in self?.send(.penHotkey) }) {
+            warnings.append("Draw hotkey \(pen.displayString) couldn't be registered (another app may be using it)")
         }
-        if !hotkeys.register(cap, id: HotkeyID.capture, handler: { [weak self] in self?.requestCapture() }) {
-            warnings.append("Capture hotkey \(cap.displayString) is taken by another app")
+        if !hotkeys.register(cap, id: HotkeyID.capture, exclusive: true, handler: { [weak self] in self?.requestCapture() }) {
+            warnings.append("Capture hotkey \(cap.displayString) couldn't be registered (another app may be using it)")
         }
         hotkeyWarnings = warnings
         menuBar.setWarnings(warnings)
@@ -174,7 +177,11 @@ final class AppController: NSObject {
 
     func requestCapture() {
         guard session.mode != .capturing else { return }
-        guard capturer.hasPermission else { showPermissionAlert(); return }
+        guard capturer.hasPermission else {
+            if session.mode == .drawing { send(.escape) }
+            showPermissionAlert()
+            return
+        }
         send(.captureHotkey)
     }
 
@@ -226,10 +233,21 @@ final class AppController: NSObject {
         case .undo:
             if let v = strokeOrder.popLast() { v.undo() }
         case .copySelection:
-            if let img = composedSelection() { output.copy(img, format: format) }
+            guard let img = composedSelection() else { return }
+            guard output.copy(img, format: format) else {
+                presentAlert("Couldn't copy the screenshot", "The image couldn't be put on the clipboard. Try again or save it instead.", false)
+                return
+            }
             send(.captureFinished)
         case .saveSelection:
-            if let img = composedSelection() { lastSavedURL = output.save(img, format: format, folder: saveFolder) }
+            guard let img = composedSelection() else { return }
+            guard let url = output.save(img, format: format, folder: saveFolder) else {
+                presentAlert("Couldn't save the screenshot",
+                             "Neither \(saveFolder.path) nor \(output.fallbackFolder.path) can be written to. Choose another folder in Settings, or copy it instead.",
+                             false)
+                return
+            }
+            lastSavedURL = url
             send(.captureFinished)
         case .restorePreviousApp:
             previousApp?.activate()
@@ -292,13 +310,20 @@ final class AppController: NSObject {
 
     private func showPermissionAlert() {
         capturer.requestPermission()
+        presentAlert("Tracer needs Screen Recording permission to take screenshots",
+                     "Turn on Tracer in System Settings → Privacy & Security → Screen & System Audio Recording, then quit and reopen Tracer. Drawing works without it.",
+                     true)
+    }
+
+    static func runAlert(title: String, body: String, offerSettings: Bool) {
         let alert = NSAlert()
-        alert.messageText = "Tracer needs Screen Recording permission to take screenshots"
-        alert.informativeText = "Turn on Tracer in System Settings → Privacy & Security → Screen & System Audio Recording, then try again. Drawing works without it."
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = title
+        alert.informativeText = body
+        alert.addButton(withTitle: offerSettings ? "Open System Settings" : "OK")
+        if offerSettings { alert.addButton(withTitle: "Cancel") }
+        alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 3)
         NSApp.activate()
-        if alert.runModal() == .alertFirstButtonReturn,
+        if alert.runModal() == .alertFirstButtonReturn, offerSettings,
            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }

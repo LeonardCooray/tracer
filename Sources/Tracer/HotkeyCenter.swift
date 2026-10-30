@@ -22,16 +22,18 @@ final class HotkeyCenter {
     }
 
     @discardableResult
-    func register(_ hotkey: Hotkey, id: UInt32, handler: @escaping () -> Void) -> Bool {
+    func register(_ hotkey: Hotkey, id: UInt32, exclusive: Bool = false, handler: @escaping () -> Void) -> Bool {
         unregister(id: id)
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(hotkey.keyCode, hotkey.modifiers, EventHotKeyID(signature: Self.signature, id: id),
-                                         GetApplicationEventTarget(), 0, &ref)
+                                         GetApplicationEventTarget(), exclusive ? OptionBits(kEventHotKeyExclusive) : 0, &ref)
         guard status == noErr, let ref else { return false }
         refs[id] = ref
         Self.handlers[id] = handler
         return true
     }
+
+    func isRegistered(id: UInt32) -> Bool { refs[id] != nil }
 
     func unregister(id: UInt32) {
         if let ref = refs.removeValue(forKey: id) { UnregisterEventHotKey(ref) }

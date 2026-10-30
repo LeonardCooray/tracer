@@ -93,11 +93,29 @@ struct SettingsView: View {
     }
 }
 
+extension Notification.Name {
+    static let tracerStopRecording = Notification.Name("TracerStopRecording")
+}
+
 @MainActor
 final class RecorderState: ObservableObject {
     @Published var recording = false
     @Published var problem: String?
     var monitor: Any?
+    private var observer: Any?
+
+    init() {
+        observer = NotificationCenter.default.addObserver(forName: .tracerStopRecording, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cancel() }
+        }
+    }
+
+    func cancel() {
+        if let m = monitor { NSEvent.removeMonitor(m) }
+        monitor = nil
+        recording = false
+        problem = nil
+    }
 }
 
 // Uses an ObservableObject rather than @State: the Command Line Tools build can't load the SwiftUI macro plugin.
@@ -122,10 +140,10 @@ struct HotkeyRecorder: View {
         state.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             if e.keyCode == UInt16(kVK_Escape) { stop(); return nil }
             let k = Hotkey(keyCode: UInt32(e.keyCode), modifiers: carbonModifiers(e.modifierFlags))
-            if k.modifiers == 0 {
-                state.problem = "Add ⌃, ⌥ or ⌘"
-            } else if k.isReservedBySystem {
+            if k.isReservedBySystem {
                 state.problem = "\(k.displayString) is used by macOS"
+            } else if !k.isUsableGlobally {
+                state.problem = "Add ⌃, ⌥ or ⌘"
             } else {
                 onSet(k)
                 stop()
@@ -158,6 +176,11 @@ final class SettingsWindowController {
 
     init(model: SettingsModel) { self.model = model }
 
+    func stopRecording() {
+        NotificationCenter.default.post(name: .tracerStopRecording, object: nil)
+        model.onRecording(false)
+    }
+
     func show() {
         if window == nil {
             let w = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -165,6 +188,11 @@ final class SettingsWindowController {
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: SettingsView(model: model))
             w.center()
+            for name in [NSWindow.willCloseNotification, NSWindow.didResignKeyNotification] {
+                NotificationCenter.default.addObserver(forName: name, object: w, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.stopRecording() }
+                }
+            }
             window = w
         }
         NSApp.activate()

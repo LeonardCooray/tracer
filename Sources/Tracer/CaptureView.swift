@@ -63,6 +63,8 @@ final class CaptureView: NSView {
         let p = convert(event.locationInWindow, from: nil)
         if let s = selection, let i = corners(of: s).firstIndex(where: { hypot($0.x - p.x, $0.y - p.y) <= 10 }) {
             drag = .resizing(corners(of: s)[3 - i])
+        } else if let s = selection, s.insetBy(dx: -6, dy: -6).contains(p), !s.insetBy(dx: 6, dy: 6).contains(p) {
+            drag = .moving(p, s)
         } else if let s = selection, s.contains(p) {
             if armed { drag = .drawing; inkView?.mouseDown(with: event) } else { drag = .moving(p, s) }
         } else {

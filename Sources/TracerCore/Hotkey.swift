@@ -40,6 +40,11 @@ public struct Hotkey: Codable, Equatable, Hashable, Sendable {
         return s + (KeyCode.names[keyCode] ?? "Key \(keyCode)")
     }
 
+    // Needs ⌃, ⌥ or ⌘: plain or Shift-only keys would take over typing everywhere.
+    public var isUsableGlobally: Bool {
+        modifiers & (Self.control | Self.option | Self.command) != 0 && !isReservedBySystem
+    }
+
     public var isReservedBySystem: Bool {
         modifiers == Self.shift | Self.command
             && [KeyCode.three, KeyCode.four, KeyCode.five, KeyCode.six].contains(keyCode)

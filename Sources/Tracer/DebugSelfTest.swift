@@ -15,6 +15,7 @@ enum DebugSelfTest {
             case "capture": await capture(c)
             case "settings": await settings(c)
             case "displays": await displays(c)
+            case "review": await review(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -286,6 +287,96 @@ enum DebugSelfTest {
         c.screensChanged()
         check(c.session.mode == .idle, "display change cancels an in-progress capture")
         check(c.overlays.panels.values.allSatisfy { !$0.isVisible }, "overlays hidden after cancelled capture")
+    }
+
+    final class DeniedCapturer: ScreenCapturing {
+        var hasPermission: Bool { false }
+        func requestPermission() {}
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] { [:] }
+    }
+
+    static func review(_ c: AppController) async {
+        var alerts: [(String, AppMode, Bool)] = []
+        c.presentAlert = { title, _, _ in
+            alerts.append((title, c.session.mode, c.overlays.panels.values.contains { $0.isVisible && !$0.ignoresMouseEvents }))
+        }
+
+        // Permission alert while drawing must be reachable: no interactive overlay above it.
+        c.capturer = DeniedCapturer()
+        c.send(.penHotkey)
+        c.requestCapture()
+        check(alerts.count == 1 && alerts[0].1 == .idle && !alerts[0].2, "permission alert shown with no interactive overlay above it")
+        if c.session.mode != .idle { c.send(.escape) }
+
+        // Copy/Save with no selection are no-ops.
+        c.capturer = FakeCapturer()
+        c.requestCapture()
+        await pause(0.4)
+        c.send(.command(.copy))
+        check(c.session.mode == .capturing, "copy with no selection keeps capture open")
+        c.send(.command(.save))
+        check(c.session.mode == .capturing, "save with no selection keeps capture open")
+
+        // A failed save keeps the capture and says so.
+        guard let (_, cv) = c.overlays.captureViews.first, let w = cv.window else { return }
+        func dragCV(_ a: NSPoint, _ b: NSPoint, flags: NSEvent.ModifierFlags = []) {
+            cv.mouseDown(with: mouse(.leftMouseDown, a, in: w, flags: flags))
+            for t in stride(from: 0.25, through: 1, by: 0.25) {
+                cv.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t), in: w, flags: flags))
+            }
+            cv.mouseUp(with: mouse(.leftMouseUp, b, in: w, flags: flags))
+        }
+        dragCV(NSPoint(x: 300, y: 300), NSPoint(x: 700, y: 600))
+        let fm = FileManager.default
+        let locked = fm.temporaryDirectory.appendingPathComponent("tracer-locked-\(UUID().uuidString)")
+        try? fm.createDirectory(at: locked, withIntermediateDirectories: true)
+        try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        let savedFolder = c.saveFolder
+        c.saveFolder = locked.appendingPathComponent("a")
+        c.output.fallbackFolder = locked.appendingPathComponent("b")
+        alerts.removeAll()
+        c.send(.command(.save))
+        check(c.session.mode == .capturing, "failed save keeps capture open")
+        check(alerts.count == 1, "failed save shows a message (\(alerts.map(\.0)))")
+        c.saveFolder = savedFolder
+        c.output.fallbackFolder = OutputController.defaultFolder
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        try? fm.removeItem(at: locked)
+
+        // Selection can be moved after a tool is picked, by dragging its outline.
+        c.send(.command(.selectTool(.arrow)))
+        dragCV(NSPoint(x: 400, y: 400), NSPoint(x: 500, y: 450))
+        let inkCount = c.overlays.inkViews.values.first?.model.strokes.count
+        let before = cv.selection!
+        dragCV(NSPoint(x: before.minX + 100, y: before.maxY), NSPoint(x: before.minX + 140, y: before.maxY - 30))
+        check(cv.selection == before.offsetBy(dx: 40, dy: -30), "outline drag moves selection after drawing (\(String(describing: cv.selection)))")
+        check(c.overlays.inkViews.values.first?.model.strokes.count == inkCount, "moving doesn't draw")
+
+        // JPEG copies paste everywhere.
+        c.format = .jpeg
+        c.send(.command(.copy))
+        let types = NSPasteboard.general.types ?? []
+        check(types.contains(NSPasteboard.PasteboardType("public.jpeg")) && types.contains(.tiff), "JPEG copy also offers TIFF (\(types.map(\.rawValue)))")
+        c.format = .png
+
+        // Leaving Settings mid-recording restores the global hotkeys.
+        c.settingsWindow.show()
+        await pause(0.3)
+        c.settingsModel.onRecording(true)
+        check(!c.globalHotkeysRegistered, "recording suspends global hotkeys")
+        c.settingsWindow.window?.close()
+        await pause(0.2)
+        check(c.globalHotkeysRegistered, "closing Settings mid-recording restores global hotkeys")
+
+        // Failed registration wording.
+        let squatter = HotkeyCenter()
+        _ = c.hotkeyWarnings
+        c.settingsModel.onRecording(true)
+        _ = squatter.register(c.settings.penHotkey, id: 77) {}
+        c.settingsModel.onRecording(false)
+        check(c.hotkeyWarnings.first?.contains("couldn't be registered") == true, "failed hotkey says it couldn't be registered (\(c.hotkeyWarnings))")
+        squatter.unregister(id: 77)
+        c.settingsModel.onRecording(false)
     }
 
     static func live(_ c: AppController) async {

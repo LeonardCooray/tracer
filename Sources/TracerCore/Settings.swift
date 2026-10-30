@@ -17,9 +17,8 @@ public struct TracerSettings: Codable, Equatable, Sendable {
     public func validated() -> TracerSettings {
         var s = self
         s.fadeDelay = FadeSetting.clamp(fadeDelay)
-        func bad(_ k: Hotkey) -> Bool { k.isReservedBySystem || k.modifiers == 0 }
-        if bad(s.penHotkey) { s.penHotkey = .defaultPen }
-        if bad(s.captureHotkey) { s.captureHotkey = .defaultCapture }
+        if !s.penHotkey.isUsableGlobally { s.penHotkey = .defaultPen }
+        if !s.captureHotkey.isUsableGlobally { s.captureHotkey = .defaultCapture }
         if s.penHotkey == s.captureHotkey {
             s.penHotkey = .defaultPen
             s.captureHotkey = .defaultCapture

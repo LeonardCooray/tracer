@@ -80,3 +80,11 @@ private func freshDefaults() -> UserDefaults {
     d.set(try! JSONEncoder().encode(s), forKey: SettingsStore.key)
     #expect(SettingsStore(defaults: d).load().fadeDelay == 10)
 }
+
+@Test func shiftOnlyHotkeyResets() {
+    var s = TracerSettings.defaults
+    s.penHotkey = Hotkey(keyCode: KeyCode.a, modifiers: Hotkey.shift)
+    #expect(s.validated().penHotkey == .defaultPen)
+    #expect(!Hotkey(keyCode: KeyCode.a, modifiers: Hotkey.shift).isUsableGlobally)
+    #expect(Hotkey(keyCode: KeyCode.a, modifiers: Hotkey.shift | Hotkey.option).isUsableGlobally)
+}
