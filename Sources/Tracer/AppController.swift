@@ -20,6 +20,11 @@ final class AppController: NSObject {
     lazy var settingsModel = SettingsModel(settings: settings)
     lazy var settingsWindow = SettingsWindowController(model: settingsModel)
     private var ringTimer: Timer?
+    private let defaults: UserDefaults
+    private static let askedKey = "askedForScreenRecording"
+    private var captureGeneration = 0
+    private var awaitingFrames = false
+    private var screenLayout: [CGDirectDisplayID: CGRect] = [:]
     private var dockDisplay: CGDirectDisplayID?
     private(set) var lastSavedURL: URL?
     private(set) var frames: [CGDirectDisplayID: FrozenFrame] = [:]
@@ -34,12 +39,18 @@ final class AppController: NSObject {
 
     var sessionKeyCount: Int { hotkeys.sessionKeyCount }
 
+    #if DEBUG
+    func resetScreenRecordingPrompt() { defaults.removeObject(forKey: Self.askedKey) }
+    func markScreenRecordingPromptShown() { defaults.set(true, forKey: Self.askedKey) }
+    #endif
+
     var globalHotkeysRegistered: Bool { hotkeys.isRegistered(id: HotkeyID.pen) && hotkeys.isRegistered(id: HotkeyID.capture) }
 
     private enum HotkeyID { static let pen: UInt32 = 1, capture: UInt32 = 2 }
 
     init(defaults: UserDefaults = .standard) {
         store = SettingsStore(defaults: defaults)
+        self.defaults = defaults
         settings = store.load()
         super.init()
         overlays.configureView = { [weak self] ink, capture in self?.configure(ink, capture) }
@@ -61,13 +72,22 @@ final class AppController: NSObject {
             self?.previousApp?.activate()
         }
         apply(settings, previous: nil)
+        screenLayout = currentLayout
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.screensChanged() }
         }
     }
 
-    func screensChanged() {
+    private var currentLayout: [CGDirectDisplayID: CGRect] {
+        Dictionary(NSScreen.screens.compactMap { s in s.displayID.map { ($0, s.frame) } }, uniquingKeysWith: { a, _ in a })
+    }
+
+    // `force` lets the self-test simulate a change on a single-display Mac.
+    func screensChanged(force: Bool = false) {
+        let layout = currentLayout
+        guard force || layout != screenLayout else { return }
+        screenLayout = layout
         text.cancel()
         if session.mode == .capturing { send(.escape) }
         overlays.sync()
@@ -205,13 +225,15 @@ final class AppController: NSObject {
         case .showOverlays(let interactive):
             let front = NSWorkspace.shared.frontmostApplication
             if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = front }
-            overlays.show(interactive: interactive)
+            overlays.show(interactive: interactive && !awaitingFrames)
             enterLiveChrome(session.mode == .drawing)
             if session.mode == .drawing, let screen = screenUnderPointer {
                 dockDisplay = screen.displayID
                 dock.slideIn(onRightEdgeOf: screen)
             }
         case .hideOverlays:
+            captureGeneration += 1
+            awaitingFrames = false
             text.cancel()
             dock.slideOut()
             NSColorPanel.shared.orderOut(nil)
@@ -274,10 +296,16 @@ final class AppController: NSObject {
 
     private func freeze() {
         enterLiveChrome(false)
+        captureGeneration += 1
+        let generation = captureGeneration
+        awaitingFrames = true
+        overlays.panels.values.forEach { $0.setInteractive(false) }
         Task { @MainActor in
             do {
                 let captured = try await capturer.captureAll()
-                guard session.mode == .capturing else { return }
+                guard generation == captureGeneration, session.mode == .capturing else { return }
+                awaitingFrames = false
+                overlays.panels.values.forEach { $0.setInteractive(true) }
                 frames = captured
                 for (id, frame) in captured {
                     overlays.frozenViews[id]?.frame_ = frame
@@ -288,8 +316,13 @@ final class AppController: NSObject {
                     }
                 }
             } catch {
+                guard generation == captureGeneration else { return }
                 send(.escape)
-                showPermissionAlert()
+                if capturer.hasPermission {
+                    presentAlert("Couldn't capture the screen", error.localizedDescription, false)
+                } else {
+                    showPermissionAlert()
+                }
             }
         }
     }
@@ -316,8 +349,13 @@ final class AppController: NSObject {
         return Compositor.image(base: frame.image, baseScale: frame.scale, strokes: ink.model.strokes, selection: sel)
     }
 
+    // The first time, only macOS's own prompt appears; Tracer's alert covers later attempts.
     private func showPermissionAlert() {
-        capturer.requestPermission()
+        if !defaults.bool(forKey: Self.askedKey) {
+            defaults.set(true, forKey: Self.askedKey)
+            capturer.requestPermission()
+            return
+        }
         presentAlert("Tracer needs Screen Recording permission to take screenshots",
                      "Turn on Tracer in System Settings → Privacy & Security → Screen & System Audio Recording, then quit and reopen Tracer. Drawing works without it.",
                      true)

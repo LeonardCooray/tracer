@@ -17,6 +17,7 @@ enum DebugSelfTest {
             case "displays": await displays(c)
             case "review": await review(c)
             case "text": await textEdits(c)
+            case "capture2": await capture2(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -287,6 +288,8 @@ enum DebugSelfTest {
         c.requestCapture()
         await pause(0.4)
         c.screensChanged()
+        check(c.session.mode == .capturing, "a no-op screen notification keeps the capture")
+        c.screensChanged(force: true)
         check(c.session.mode == .idle, "display change cancels an in-progress capture")
         check(c.overlays.panels.values.allSatisfy { !$0.isVisible }, "overlays hidden after cancelled capture")
     }
@@ -304,6 +307,7 @@ enum DebugSelfTest {
         }
 
         // Permission alert while drawing must be reachable: no interactive overlay above it.
+        c.markScreenRecordingPromptShown()
         c.capturer = DeniedCapturer()
         c.send(.penHotkey)
         c.requestCapture()
@@ -411,11 +415,71 @@ enum DebugSelfTest {
         }
         v.onTextClick?(v, NSPoint(x: 200, y: 200))
         check(c.text.isEditing, "typing in capture")
-        c.screensChanged()
+        c.screensChanged(force: true)
         check(!c.text.isEditing && c.session.mode == .idle, "display change mid-typing closes the box and the capture")
         c.requestCapture()
         await pause(0.4)
         check(c.sessionKeyCount > 0, "next capture still has its keys")
+        c.send(.escape)
+    }
+
+    final class CountingDenied: ScreenCapturing {
+        var requests = 0
+        var hasPermission: Bool { false }
+        func requestPermission() { requests += 1 }
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] { [:] }
+    }
+
+    struct Boom: Error {}
+
+    final class FailingCapturer: ScreenCapturing {
+        var hasPermission: Bool { true }
+        func requestPermission() {}
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] { throw Boom() }
+    }
+
+    final class SlowCapturer: ScreenCapturing {
+        let delay: Double, scale: Double
+        init(delay: Double, scale: Double) { self.delay = delay; self.scale = scale }
+        var hasPermission: Bool { true }
+        func requestPermission() {}
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] {
+            try await Task.sleep(for: .seconds(delay))
+            var out = try await FakeCapturer().captureAll()
+            for (k, f) in out { out[k] = FrozenFrame(image: f.image, scale: scale) }
+            return out
+        }
+    }
+
+    static func capture2(_ c: AppController) async {
+        var alerts: [String] = []
+        c.presentAlert = { t, _, _ in alerts.append(t) }
+        c.resetScreenRecordingPrompt()
+
+        let denied = CountingDenied()
+        c.capturer = denied
+        c.requestCapture()
+        check(denied.requests == 1 && alerts.isEmpty, "first capture shows only the system prompt (\(alerts))")
+        c.requestCapture()
+        check(alerts.count == 1, "later captures show Tracer's alert")
+
+        alerts.removeAll()
+        c.capturer = FailingCapturer()
+        c.requestCapture()
+        await pause(0.3)
+        check(alerts.first == "Couldn't capture the screen", "a capture error isn't blamed on permission (\(alerts))")
+        check(c.session.mode == .idle, "failed capture returns to idle")
+
+        c.capturer = SlowCapturer(delay: 0.6, scale: 7)
+        c.requestCapture()
+        await pause(0.1)
+        check(c.overlays.panels.values.allSatisfy { $0.ignoresMouseEvents }, "no clicks reach the overlay before frames arrive")
+        c.send(.escape)
+        c.capturer = SlowCapturer(delay: 0.1, scale: 2)
+        c.requestCapture()
+        await pause(1.0)
+        check(c.frames.values.allSatisfy { $0.scale == 2 }, "a stale capture can't replace the newer one")
+        check(c.overlays.panels.values.allSatisfy { !$0.ignoresMouseEvents }, "overlay takes clicks once frames arrive")
         c.send(.escape)
     }
 
