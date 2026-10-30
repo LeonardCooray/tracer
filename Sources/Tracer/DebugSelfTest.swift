@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import ServiceManagement
 import TracerCore
 
 // Debug-only smoke test: `Tracer --self-test live` drives the real overlays and prints PASS/FAIL lines.
@@ -31,6 +32,7 @@ enum DebugSelfTest {
             case "displays2": await displays2(c)
             case "keys": await keys(c)
             case "redraw": await redraw(c)
+            case "regress": await regress(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -486,7 +488,14 @@ enum DebugSelfTest {
         c.capturer = SlowCapturer(delay: 0.6, scale: 7)
         c.requestCapture()
         await pause(0.1)
-        check(c.overlays.panels.values.allSatisfy { $0.ignoresMouseEvents }, "no clicks reach the overlay before frames arrive")
+        if let v = c.overlays.inkViews.values.first, let cv = c.overlays.captureViews.values.first, let w = v.window {
+            v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+            v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 200, y: 100), in: w))
+            cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+            cv.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 300), in: w))
+            check(v.model.strokes.isEmpty && cv.selection == nil, "clicks before frames arrive draw and select nothing")
+        }
+        check(c.overlays.panels.values.allSatisfy { !$0.ignoresMouseEvents }, "overlay still blocks clicks to other apps while loading")
         c.send(.escape)
         c.capturer = SlowCapturer(delay: 0.1, scale: 2)
         c.requestCapture()
@@ -579,6 +588,107 @@ enum DebugSelfTest {
         await pause(0.3)
         check(share() < 0.05, "fading redraws only the fading ink (\(Int(share() * 100))%)")
         c.send(.penHotkey)
+    }
+
+    final class FakeLogin: LoginService {
+        var status: SMAppService.Status
+        var registers = 0, unregisters = 0
+        init(_ s: SMAppService.Status) { status = s }
+        func register() throws { registers += 1; status = .enabled }
+        func unregister() throws { unregisters += 1; status = .notRegistered }
+    }
+
+    static func regress(_ c: AppController) async {
+        // Login toggle acts on the real status, not the stored copy.
+        var s = c.settings
+        s.launchAtLogin = true
+        let login = FakeLogin(.notRegistered)
+        c.loginService = FakeLogin(.enabled)
+        c.update(s)
+        c.loginService = login
+        c.settingsWindow.show()
+        await pause(0.2)
+        check(c.settingsModel.loginStatus == .notRegistered, "toggle shows the real status")
+        c.settingsModel.onLoginToggle(true)
+        check(login.registers == 1, "turning the toggle on registers even if the stored value was already on")
+        login.status = .requiresApproval
+        c.settingsModel.onLoginToggle(false)
+        check(login.unregisters == 1, "turning it off unregisters a login item awaiting approval")
+        c.settingsWindow.window?.close()
+
+        // Idle cursor ring never shows the spotlight.
+        var ring = c.settings
+        ring.cursorRingAlwaysOn = true
+        c.update(ring)
+        c.send(.penHotkey)
+        c.send(.command(.selectTool(.spotlight)))
+        c.send(.penHotkey)
+        await pause(0.2)
+        if let v = c.overlays.inkViews.values.first {
+            v.setPointer(nil)
+            check((pixel(v, at: NSPoint(x: 100, y: 100))?.alphaComponent ?? 0) < 0.1, "idle displays aren't dimmed by a leftover spotlight")
+            v.setPointer(NSPoint(x: 500, y: 500))
+            check((pixel(v, at: NSPoint(x: 100, y: 100))?.alphaComponent ?? 0) < 0.1, "idle display under the pointer isn't dimmed either")
+        }
+        ring.cursorRingAlwaysOn = false
+        c.update(ring)
+        c.send(.penHotkey)
+        c.send(.command(.selectTool(.pen)))
+
+        guard let v = c.overlays.inkViews.values.first, let w = v.window else { return }
+        let full = v.bounds.width * v.bounds.height
+        // A big pen stroke only redraws its newest segment.
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+        for i in 1...40 {
+            let a = Double(i) / 40 * 2 * .pi
+            v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 700 + 500 * cos(a), y: 500 + 400 * sin(a)), in: w))
+        }
+        v.largestInvalidation = 0
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 1200, y: 510), in: w))
+        let f = v.largestInvalidation / full
+        check(f.isFinite && f < 0.05, "a screen-sized stroke redraws only its tail (\(f.isFinite ? Int(f * 100) : 100)%)")
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 1200, y: 510), in: w))
+        c.send(.command(.clearAll))
+
+        // Tool switch mid-drag doesn't double-count the stroke.
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 100), in: w))
+        c.send(.command(.selectTool(.arrow)))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 100), in: w))
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 300), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 300), in: w))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 300), in: w))
+        c.send(.command(.undo))
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "two undos remove both strokes after a mid-drag tool switch")
+
+        // An arrow click leaves nothing behind for undo to trip on.
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 300), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 300), in: w))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 300), in: w))
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 500, y: 500), in: w))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 500, y: 500), in: w))
+        check(v.model.strokes.count == 1, "a click with the arrow adds no stroke")
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "the next undo removes the real arrow")
+        c.send(.penHotkey)
+
+        // Clicking outside the selection while typing commits the text.
+        c.capturer = FakeCapturer()
+        c.requestCapture()
+        await pause(0.4)
+        guard let cv = c.overlays.captureViews.values.first, let cw = cv.window else { return }
+        cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 300, y: 300), in: cw))
+        cv.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 700, y: 600), in: cw))
+        cv.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 700, y: 600), in: cw))
+        c.send(.command(.selectTool(.text)))
+        v.onTextClick?(v, NSPoint(x: 400, y: 400))
+        v.subviews.compactMap { $0 as? NSTextField }.first?.stringValue = "note"
+        cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: cw))
+        cv.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 100, y: 100), in: cw))
+        check(!c.text.isEditing && v.model.strokes.contains { $0.text == "note" }, "clicking outside the selection commits the text")
+        check(cv.selection != nil, "that click doesn't throw away the selection")
+        c.send(.escape)
     }
 
     static func live(_ c: AppController) async {

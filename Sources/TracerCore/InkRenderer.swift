@@ -103,16 +103,17 @@ public func inkBounds(of s: Stroke) -> CGRect {
     case .text:
         let lines = (s.text ?? "").components(separatedBy: "\n")
         let attrs = InkRenderer.attributes(size: w, color: CGColor(gray: 0, alpha: 1))
-        var maxWidth = 0.0, ascent: CGFloat = 0, descent: CGFloat = 0
-        for line in lines {
+        var box = CGRect.null
+        for (i, line) in lines.enumerated() {
             let ct = CTLineCreateWithAttributedString(NSAttributedString(string: line, attributes: attrs))
+            let baseline = CGPoint(x: first.x, y: first.y - Double(i) * w * 1.25)
             var a: CGFloat = 0, d: CGFloat = 0
-            maxWidth = max(maxWidth, CTLineGetTypographicBounds(ct, &a, &d, nil))
-            ascent = max(ascent, a); descent = max(descent, d)
+            let width = CTLineGetTypographicBounds(ct, &a, &d, nil)
+            box = box.union(CGRect(x: baseline.x, y: baseline.y - d, width: width, height: a + d))
+            // Glyph paths catch stacked accents that rise above the font's ascent.
+            box = box.union(CTLineGetBoundsWithOptions(ct, .useGlyphPathBounds).offsetBy(dx: baseline.x, dy: baseline.y))
         }
-        let lastBaseline = first.y - Double(lines.count - 1) * w * 1.25
-        return CGRect(x: first.x, y: lastBaseline - descent, width: maxWidth, height: first.y + ascent - (lastBaseline - descent))
-            .insetBy(dx: -3, dy: -3)
+        return box.insetBy(dx: -3, dy: -3)
     case .spotlight: return .null
     }
 }

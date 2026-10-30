@@ -125,3 +125,16 @@ private func stroke(_ tool: Tool, _ pts: [CGPoint], color: RGBA = RGBA(hex: 0xFF
         #expect(b.width > 0 && b.height > 0)
     }
 }
+
+@Test func textBoundsCoverStackedMarks() {
+    var s = stroke(.text, [CGPoint(x: 10, y: 30)], width: 18)
+    s.text = "e\u{301}\u{301}\u{301}\u{301}\u{301}"
+    let c = Canvas()
+    InkRenderer.draw([s], in: c.ctx) { _ in 1 }
+    let b = inkBounds(of: s)
+    var outside = 0
+    for y in 0..<c.size { for x in 0..<c.size where c.pixel(x, y).a > 0 {
+        if !b.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) { outside += 1 }
+    } }
+    #expect(outside == 0, "\(outside) px outside \(b)")
+}

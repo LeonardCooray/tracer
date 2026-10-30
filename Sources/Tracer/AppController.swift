@@ -24,6 +24,7 @@ final class AppController: NSObject {
     private static let askedKey = "askedForScreenRecording"
     private var captureGeneration = 0
     private var awaitingFrames = false
+    // Frame width is scaled by the backing factor so a HiDPI-only change still counts.
     private var screenLayout: [CGDirectDisplayID: CGRect] = [:]
     private var dockDisplay: CGDirectDisplayID?
     private(set) var lastSavedURL: URL?
@@ -35,6 +36,7 @@ final class AppController: NSObject {
     private var width: Double?
     private var fadeDelay = FadeSetting.defaultDelay
     private(set) var hotkeyWarnings: [String] = []
+    var loginService: LoginService = SystemLoginService()
     var presentAlert: @MainActor (_ title: String, _ body: String, _ offerSettings: Bool) -> Void = AppController.runAlert
 
     var sessionKeyCount: Int { hotkeys.sessionKeyCount }
@@ -58,6 +60,8 @@ final class AppController: NSObject {
         menuBar.onDraw = { [weak self] in self?.send(.penHotkey) }
         menuBar.onCapture = { [weak self] in self?.requestCapture() }
         menuBar.onSettings = { [weak self] in self?.settingsWindow.show() }
+        settingsWindow.onShow = { [weak self] in self?.refreshLoginStatus() }
+        settingsModel.onLoginToggle = { [weak self] in self?.setLaunchAtLogin($0) }
         settingsModel.onChange = { [weak self] in self?.update($0) }
         settingsModel.onRecording = { [weak self] recording in
             guard let self else { return }
@@ -68,10 +72,7 @@ final class AppController: NSObject {
         dockState.onWidth = { [weak self] in self?.setWidth($0) }
         dockState.onMoreColors = { [weak self] in self?.showColorPanel() }
         text.onBegan = { [weak self] in self?.send(.textEditingBegan) }
-        text.onEnded = { [weak self] in
-            self?.send(.textEditingEnded)
-            self?.previousApp?.activate()
-        }
+        text.onEnded = { [weak self] in self?.send(.textEditingEnded) }
         apply(settings, previous: nil)
         screenLayout = currentLayout
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
@@ -81,7 +82,9 @@ final class AppController: NSObject {
     }
 
     private var currentLayout: [CGDirectDisplayID: CGRect] {
-        Dictionary(NSScreen.screens.compactMap { s in s.displayID.map { ($0, s.frame) } }, uniquingKeysWith: { a, _ in a })
+        Dictionary(NSScreen.screens.compactMap { s in
+            s.displayID.map { ($0, CGRect(origin: s.frame.origin, size: CGSize(width: s.frame.width * s.backingScaleFactor, height: s.frame.height))) }
+        }, uniquingKeysWith: { a, _ in a })
     }
 
     // `force` lets the self-test simulate a change on a single-display Mac.
@@ -89,7 +92,7 @@ final class AppController: NSObject {
         let layout = currentLayout
         guard force || layout != screenLayout else { return }
         screenLayout = layout
-        text.cancel()
+        if session.mode == .drawing { text.commit() } else { text.cancel() }
         if session.mode == .capturing { send(.escape) }
         overlays.sync()
         let live = Set(overlays.inkViews.values.map(ObjectIdentifier.init))
@@ -127,23 +130,27 @@ final class AppController: NSObject {
         session.setFadeDelay(s.fadeDelay)
         overlays.inkViews.values.forEach(applyStyle)
         if previous?.penHotkey != s.penHotkey || previous?.captureHotkey != s.captureHotkey || previous == nil { registerHotkeys() }
-        if let previous, previous.launchAtLogin != s.launchAtLogin { setLaunchAtLogin(s.launchAtLogin) }
         settingsModel.settings = settings
         updateIdleRing()
     }
 
+    // Acts on the user's click and macOS's real status, never on the stored copy.
     private func setLaunchAtLogin(_ on: Bool) {
         do {
-            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            if on { try loginService.register() } else { try loginService.unregister() }
             settingsModel.loginError = nil
-            settingsModel.loginStatus = SMAppService.mainApp.status
         } catch {
             settingsModel.loginError = "Couldn't change launch at login: \(error.localizedDescription)"
-            settings.launchAtLogin = SMAppService.mainApp.status == .enabled
-            settingsModel.loginStatus = SMAppService.mainApp.status
-            store.save(settings)
-            settingsModel.settings = settings
         }
+        refreshLoginStatus()
+    }
+
+    private func refreshLoginStatus() {
+        let status = loginService.status
+        settingsModel.loginStatus = status
+        settings.launchAtLogin = status == .enabled || status == .requiresApproval
+        store.save(settings)
+        settingsModel.settings = settings
     }
 
     private func updateIdleRing() {
@@ -183,6 +190,11 @@ final class AppController: NSObject {
             text.begin(at: p, in: v, style: currentStyle)
         }
         capture.onSelectionChanged = { [weak self] in self?.selectionChanged(in: $0) }
+        capture.onPointerDown = { [weak self] in
+            guard let self, text.isEditing else { return false }
+            text.commit()
+            return true
+        }
         applyStyle(to: ink)
         switch session.mode {
         case .idle: break
@@ -236,7 +248,7 @@ final class AppController: NSObject {
         case .showOverlays(let interactive):
             let front = NSWorkspace.shared.frontmostApplication
             if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = front }
-            overlays.show(interactive: interactive && !awaitingFrames)
+            overlays.show(interactive: interactive)
             enterLiveChrome(session.mode == .drawing)
             if session.mode == .drawing, let screen = screenUnderPointer {
                 dockDisplay = screen.displayID
@@ -244,7 +256,7 @@ final class AppController: NSObject {
             }
         case .hideOverlays:
             captureGeneration += 1
-            awaitingFrames = false
+            setAwaitingFrames(false)
             text.cancel()
             dock.slideOut()
             NSColorPanel.shared.orderOut(nil)
@@ -302,6 +314,13 @@ final class AppController: NSObject {
         }
     }
 
+    // The overlay keeps catching clicks while frames load, so nothing reaches other apps; the views just ignore them.
+    private func setAwaitingFrames(_ waiting: Bool) {
+        awaitingFrames = waiting
+        overlays.inkViews.values.forEach { $0.acceptsInput = !waiting }
+        overlays.captureViews.values.forEach { $0.acceptsInput = !waiting }
+    }
+
     private func enterLiveChrome(_ live: Bool) {
         for v in overlays.inkViews.values {
             v.showsCursorRing = live
@@ -315,14 +334,12 @@ final class AppController: NSObject {
         enterLiveChrome(false)
         captureGeneration += 1
         let generation = captureGeneration
-        awaitingFrames = true
-        overlays.panels.values.forEach { $0.setInteractive(false) }
+        setAwaitingFrames(true)
         Task { @MainActor in
             do {
                 let captured = try await capturer.captureAll()
                 guard generation == captureGeneration, session.mode == .capturing else { return }
-                awaitingFrames = false
-                overlays.panels.values.forEach { $0.setInteractive(true) }
+                setAwaitingFrames(false)
                 frames = captured
                 for (id, frame) in captured {
                     overlays.frozenViews[id]?.frame_ = frame
@@ -442,4 +459,18 @@ extension SessionKey {
         case .save: "⌘S"
         }
     }
+}
+
+@MainActor
+protocol LoginService {
+    var status: SMAppService.Status { get }
+    func register() throws
+    func unregister() throws
+}
+
+@MainActor
+struct SystemLoginService: LoginService {
+    var status: SMAppService.Status { SMAppService.mainApp.status }
+    func register() throws { try SMAppService.mainApp.register() }
+    func unregister() throws { try SMAppService.mainApp.unregister() }
 }

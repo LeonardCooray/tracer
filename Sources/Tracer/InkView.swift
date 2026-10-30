@@ -14,6 +14,7 @@ final class InkView: NSView {
     var onTextClick: ((InkView, NSPoint) -> Void)?
     var onPointerMoved: ((InkView) -> Void)?
     private(set) var pointer: NSPoint?
+    var acceptsInput = true
     private var shiftHeld = false
     private var link: CADisplayLink?
 
@@ -56,7 +57,7 @@ final class InkView: NSView {
 
     // Only the ring and label around the old and new pointer change, unless the spotlight is on.
     private func invalidatePointer(from old: NSPoint?) {
-        if tool == .spotlight { needsDisplay = true; return }
+        if spotlightShown { needsDisplay = true; return }
         for p in [old, pointer].compactMap({ $0 }) { setNeedsDisplay(chromeRect(at: p)) }
     }
 
@@ -79,8 +80,12 @@ final class InkView: NSView {
     override func mouseMoved(with event: NSEvent) { track(event) }
     override func mouseExited(with event: NSEvent) { setPointer(nil) }
 
+    // The spotlight belongs to live drawing; an idle cursor ring never shows it.
+    private var spotlightShown: Bool { tool == .spotlight && showsPointerLabel }
+
     override func mouseDown(with event: NSEvent) {
         track(event)
+        guard acceptsInput else { return }
         let p = convert(event.locationInWindow, from: nil)
         switch tool {
         case .spotlight: return
@@ -93,18 +98,33 @@ final class InkView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         track(event)
-        guard tool != .spotlight, tool != .text else { return }
+        guard acceptsInput, model.isDrawing else { return }
         let before = model.strokes.last.map(inkBounds(of:))
         model.extend(to: convert(event.locationInWindow, from: nil))
-        if let before { setNeedsDisplay(before) }
-        invalidateActiveStroke()
+        guard let s = model.strokes.last else { return }
+        if s.tool == .pen || s.tool == .highlighter {
+            // Only the newest segments change; smoothing reaches back two points.
+            setNeedsDisplay(inkBounds(of: Stroke(tool: s.tool, points: Array(s.points.suffix(4)), style: s.style)))
+        } else {
+            if let before { setNeedsDisplay(before) }
+            invalidateActiveStroke()
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         track(event)
-        guard tool != .spotlight, tool != .text else { return }
+        guard acceptsInput, model.isDrawing else { return }
+        endActiveStroke()
+    }
+
+    private func endActiveStroke() {
         model.end(at: Self.now)
         invalidateActiveStroke()
+        if let s = model.strokes.last, s.tool == .arrow, let a = s.points.first, let b = s.points.last,
+           hypot(b.x - a.x, b.y - a.y) < InkRenderer.minimumArrowLength {
+            model.remove(id: s.id)
+            return
+        }
         onStrokeEnded?(self)
         startFadeLoopIfNeeded()
     }
@@ -118,10 +138,7 @@ final class InkView: NSView {
 
     func finishActiveStroke() {
         guard model.isDrawing else { return }
-        model.end(at: Self.now)
-        onStrokeEnded?(self)
-        startFadeLoopIfNeeded()
-        needsDisplay = true
+        endActiveStroke()
     }
 
     func removeStroke(id: UUID) -> Bool {
@@ -131,11 +148,6 @@ final class InkView: NSView {
 
     func clear() {
         model.clear()
-        needsDisplay = true
-    }
-
-    func undo() {
-        model.undo()
         needsDisplay = true
     }
 
@@ -160,7 +172,7 @@ final class InkView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let t = Self.now
-        if tool == .spotlight { drawSpotlight(at: pointer, in: ctx) }
+        if spotlightShown { drawSpotlight(at: pointer, in: ctx) }
         let visible = model.strokes.filter { inkBounds(of: $0).intersects(dirtyRect) }
         InkRenderer.draw(visible, in: ctx) { model.opacity(of: $0, at: t) }
         guard let p = pointer else { return }

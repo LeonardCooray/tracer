@@ -12,6 +12,7 @@ final class SettingsModel: ObservableObject {
     @Published var loginStatus = SMAppService.mainApp.status
     var onChange: (TracerSettings) -> Void = { _ in }
     var onRecording: (Bool) -> Void = { _ in }
+    var onLoginToggle: (Bool) -> Void = { _ in }
 
     init(settings: TracerSettings) { self.settings = settings }
 
@@ -76,7 +77,7 @@ struct SettingsView: View {
             Section {
                 Toggle("Launch at login", isOn: Binding(
                     get: { model.loginStatus == .enabled || model.loginStatus == .requiresApproval },
-                    set: { v in model.update { $0.launchAtLogin = v } }))
+                    set: { v in model.onLoginToggle(v) }))
                 if model.loginStatus == .requiresApproval {
                     Text("Approve Tracer in System Settings → General → Login Items.").font(.callout).foregroundStyle(.orange)
                 }
@@ -182,6 +183,8 @@ final class SettingsWindowController {
     let model: SettingsModel
     private(set) var window: NSWindow?
 
+    var onShow: () -> Void = {}
+
     init(model: SettingsModel) { self.model = model }
 
     func stopRecording() {
@@ -203,7 +206,7 @@ final class SettingsWindowController {
             }
             window = w
         }
-        model.loginStatus = SMAppService.mainApp.status
+        onShow()
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
     }
