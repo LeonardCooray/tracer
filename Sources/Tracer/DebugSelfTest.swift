@@ -5,6 +5,16 @@ import TracerCore
 // Debug-only smoke test: `Tracer --self-test live` drives the real overlays and prints PASS/FAIL lines.
 @MainActor
 enum DebugSelfTest {
+    static var isRequested: Bool { CommandLine.arguments.contains("--self-test") }
+
+    // Self-tests never touch the real preferences.
+    static func isolatedDefaults() -> UserDefaults {
+        let name = "com.leonardcooray.tracer.selftest"
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        return d
+    }
+
     static func runIfRequested(_ c: AppController) {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--self-test"), i + 1 < args.count else { return }
@@ -19,6 +29,7 @@ enum DebugSelfTest {
             case "text": await textEdits(c)
             case "capture2": await capture2(c)
             case "displays2": await displays2(c)
+            case "keys": await keys(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -235,7 +246,7 @@ enum DebugSelfTest {
         s.format = .jpeg
         c.update(s)
         check(c.hotkeyWarnings.isEmpty, "changed hotkey registers without relaunch \(c.hotkeyWarnings)")
-        check(SettingsStore(defaults: .standard).load() == c.settings, "settings persisted")
+        check(c.store.load() == c.settings, "settings persisted")
         check(c.format == .jpeg, "format applied")
         c.send(.penHotkey)
         check(c.overlays.inkViews.values.allSatisfy { $0.model.mode == .live(delay: 5) }, "fade delay applied to new drawing")
@@ -516,6 +527,30 @@ enum DebugSelfTest {
         await pause(0.5)
         check(c.dock.isVisible, "a quick off/on leaves the dock showing")
         c.dock.orderOut(nil)
+    }
+
+    static func keys(_ c: AppController) async {
+        c.send(.penHotkey)
+        await pause(0.3)
+        guard let v = c.overlays.inkViews.values.first, let w = v.window else { return }
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 100), in: w))
+        c.send(.command(.selectTool(.spotlight)))
+        check(!v.model.isDrawing && v.model.strokes.last?.finishedAt != nil, "switching tool mid-drag finishes the stroke")
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "undo removes the stroke finished by the tool switch")
+        c.send(.command(.selectTool(.pen)))
+        c.send(.penHotkey)
+
+        let squatter = HotkeyCenter()
+        _ = squatter.register(Hotkey(keyCode: KeyCode.one, modifiers: 0), id: 88, exclusive: true) {}
+        c.send(.penHotkey)
+        check(c.sessionKeyWarnings.contains { $0.contains("1") }, "session keys that can't register are reported (\(c.sessionKeyWarnings))")
+        c.send(.penHotkey)
+        squatter.unregister(id: 88)
+        c.send(.penHotkey)
+        check(c.sessionKeyWarnings.isEmpty, "warning clears once the key is free")
+        c.send(.penHotkey)
     }
 
     static func live(_ c: AppController) async {

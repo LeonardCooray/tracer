@@ -79,6 +79,19 @@ final class InkView: NSView {
         needsDisplay = true
     }
 
+    func finishActiveStroke() {
+        guard model.isDrawing else { return }
+        model.end(at: Self.now)
+        onStrokeEnded?(self)
+        startFadeLoopIfNeeded()
+        needsDisplay = true
+    }
+
+    func removeStroke(id: UUID) -> Bool {
+        defer { needsDisplay = true }
+        return model.remove(id: id)
+    }
+
     func clear() {
         model.clear()
         needsDisplay = true

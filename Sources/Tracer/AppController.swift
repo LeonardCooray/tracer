@@ -29,7 +29,7 @@ final class AppController: NSObject {
     private(set) var lastSavedURL: URL?
     private(set) var frames: [CGDirectDisplayID: FrozenFrame] = [:]
     private var previousApp: NSRunningApplication?
-    private var strokeOrder: [InkView] = []
+    private var strokeOrder: [(view: InkView, id: UUID)] = []
     private(set) var tool: Tool = .pen
     private(set) var color = InkPalette.presets[0]
     private var width: Double?
@@ -38,6 +38,7 @@ final class AppController: NSObject {
     var presentAlert: @MainActor (_ title: String, _ body: String, _ offerSettings: Bool) -> Void = AppController.runAlert
 
     var sessionKeyCount: Int { hotkeys.sessionKeyCount }
+    private(set) var sessionKeyWarnings: [String] = []
 
     #if DEBUG
     func resetScreenRecordingPrompt() { defaults.removeObject(forKey: Self.askedKey) }
@@ -92,7 +93,7 @@ final class AppController: NSObject {
         if session.mode == .capturing { send(.escape) }
         overlays.sync()
         let live = Set(overlays.inkViews.values.map(ObjectIdentifier.init))
-        strokeOrder.removeAll { !live.contains(ObjectIdentifier($0)) }
+        strokeOrder.removeAll { !live.contains(ObjectIdentifier($0.view)) }
         if session.mode == .drawing {
             enterLiveChrome(true)
             let screen = dockDisplay.flatMap { overlays.screen(of: $0) } ?? screenUnderPointer
@@ -135,9 +136,11 @@ final class AppController: NSObject {
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             settingsModel.loginError = nil
+            settingsModel.loginStatus = SMAppService.mainApp.status
         } catch {
             settingsModel.loginError = "Couldn't change launch at login: \(error.localizedDescription)"
             settings.launchAtLogin = SMAppService.mainApp.status == .enabled
+            settingsModel.loginStatus = SMAppService.mainApp.status
             store.save(settings)
             settingsModel.settings = settings
         }
@@ -170,7 +173,9 @@ final class AppController: NSObject {
     }
 
     private func configure(_ ink: InkView, _ capture: CaptureView) {
-        ink.onStrokeEnded = { [weak self] in self?.strokeOrder.append($0) }
+        ink.onStrokeEnded = { [weak self] v in
+            if let id = v.model.strokes.last?.id { self?.strokeOrder.append((v, id)) }
+        }
         ink.onPointerMoved = { [weak self] in self?.pointerMoved(in: $0) }
         ink.onTextClick = { [weak self] v, p in
             guard let self else { return }
@@ -196,7 +201,7 @@ final class AppController: NSObject {
             warnings.append("Capture hotkey \(cap.displayString) couldn't be registered (another app may be using it)")
         }
         hotkeyWarnings = warnings
-        menuBar.setWarnings(warnings)
+        menuBar.setWarnings(warnings + sessionKeyWarnings)
         settingsModel.warnings = warnings
         menuBar.setShortcuts(draw: pen.displayString, capture: cap.displayString)
     }
@@ -257,17 +262,23 @@ final class AppController: NSObject {
         case .freezeScreens:
             freeze()
         case .registerSessionKeys(let capture):
-            hotkeys.registerSessionKeys(capture: capture) { [weak self] in self?.handleSessionKey($0) }
+            let failed = hotkeys.registerSessionKeys(capture: capture) { [weak self] in self?.handleSessionKey($0) }
+            sessionKeyWarnings = failed.isEmpty ? [] : ["Drawing keys unavailable: " + failed.map(\.label).joined(separator: ", ")]
+            menuBar.setWarnings(hotkeyWarnings + sessionKeyWarnings)
         case .unregisterSessionKeys:
             hotkeys.unregisterSessionKeys()
         case .selectTool(let t):
             if text.isEditing { text.commit() }
+            overlays.inkViews.values.forEach { $0.finishActiveStroke() }
             tool = t
             width = nil
             overlays.inkViews.values.forEach(applyStyle)
             if session.mode == .capturing { overlays.captureViews.values.forEach { $0.armed = true } }
         case .undo:
-            if let v = strokeOrder.popLast() { v.undo() }
+            // Entries for strokes that already faded away are skipped.
+            while let (v, id) = strokeOrder.popLast() {
+                if v.removeStroke(id: id) { break }
+            }
         case .copySelection:
             guard let img = composedSelection() else { return }
             guard output.copy(img, format: format) else {
@@ -416,5 +427,19 @@ final class AppController: NSObject {
     @objc private func colorPanelChanged(_ sender: NSColorPanel) {
         guard let c = sender.color.usingColorSpace(.sRGB) else { return }
         setColor(RGBA(r: c.redComponent, g: c.greenComponent, b: c.blueComponent, a: c.alphaComponent))
+    }
+}
+
+extension SessionKey {
+    var label: String {
+        switch self {
+        case .digit(let n): "\(n)"
+        case .escape: "Esc"
+        case .delete: "Delete"
+        case .undo: "⌘Z"
+        case .returnKey: "Return"
+        case .copy: "⌘C"
+        case .save: "⌘S"
+        }
     }
 }

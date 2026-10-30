@@ -15,8 +15,7 @@ final class HotkeyCenter {
             var id = EventHotKeyID()
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
-            let handler = HotkeyCenter.handlers[id.id]
-            MainActor.assumeIsolated { handler?() }
+            MainActor.assumeIsolated { HotkeyCenter.handlers[id.id]?() }
             return noErr
         }, 1, &spec, nil, nil)
     }
@@ -42,7 +41,8 @@ final class HotkeyCenter {
         Self.handlers[id] = nil
     }
 
-    func registerSessionKeys(capture: Bool, handler: @escaping (SessionKey) -> Void) {
+    @discardableResult
+    func registerSessionKeys(capture: Bool, handler: @escaping (SessionKey) -> Void) -> [SessionKey] {
         unregisterSessionKeys()
         var keys: [(Hotkey, SessionKey)] = [
             (Hotkey(keyCode: KeyCode.one, modifiers: 0), .digit(1)),
@@ -63,10 +63,12 @@ final class HotkeyCenter {
                 (Hotkey(keyCode: KeyCode.s, modifiers: Hotkey.command), .save),
             ]
         }
+        var failed: [SessionKey] = []
         for (i, (hotkey, key)) in keys.enumerated() {
             let id = Self.sessionBase + UInt32(i)
-            if register(hotkey, id: id, handler: { handler(key) }) { sessionIDs.append(id) }
+            if register(hotkey, id: id, handler: { handler(key) }) { sessionIDs.append(id) } else if !failed.contains(key) { failed.append(key) }
         }
+        return failed
     }
 
     func unregisterSessionKeys() {

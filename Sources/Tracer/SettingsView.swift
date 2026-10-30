@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import ServiceManagement
 import SwiftUI
 import TracerCore
 
@@ -8,6 +9,7 @@ final class SettingsModel: ObservableObject {
     @Published var settings: TracerSettings
     @Published var warnings: [String] = []
     @Published var loginError: String?
+    @Published var loginStatus = SMAppService.mainApp.status
     var onChange: (TracerSettings) -> Void = { _ in }
     var onRecording: (Bool) -> Void = { _ in }
 
@@ -27,12 +29,14 @@ struct SettingsView: View {
         Form {
             Section("Hotkeys") {
                 LabeledContent("Draw on screen") {
-                    HotkeyRecorder(hotkey: model.settings.penHotkey, onRecording: model.onRecording) { k in
+                    HotkeyRecorder(hotkey: model.settings.penHotkey, other: model.settings.captureHotkey, otherName: "Capture",
+                                   onRecording: model.onRecording) { k in
                         model.update { $0.penHotkey = k }
                     }
                 }
                 LabeledContent("Capture region") {
-                    HotkeyRecorder(hotkey: model.settings.captureHotkey, onRecording: model.onRecording) { k in
+                    HotkeyRecorder(hotkey: model.settings.captureHotkey, other: model.settings.penHotkey, otherName: "Draw",
+                                   onRecording: model.onRecording) { k in
                         model.update { $0.captureHotkey = k }
                     }
                 }
@@ -71,7 +75,11 @@ struct SettingsView: View {
             }
             Section {
                 Toggle("Launch at login", isOn: Binding(
-                    get: { model.settings.launchAtLogin }, set: { v in model.update { $0.launchAtLogin = v } }))
+                    get: { model.loginStatus == .enabled || model.loginStatus == .requiresApproval },
+                    set: { v in model.update { $0.launchAtLogin = v } }))
+                if model.loginStatus == .requiresApproval {
+                    Text("Approve Tracer in System Settings → General → Login Items.").font(.callout).foregroundStyle(.orange)
+                }
                 if let e = model.loginError {
                     Text(e).font(.callout).foregroundStyle(.red)
                 }
@@ -121,6 +129,8 @@ final class RecorderState: ObservableObject {
 // Uses an ObservableObject rather than @State: the Command Line Tools build can't load the SwiftUI macro plugin.
 struct HotkeyRecorder: View {
     let hotkey: Hotkey
+    let other: Hotkey
+    let otherName: String
     let onRecording: (Bool) -> Void
     let onSet: (Hotkey) -> Void
     @StateObject private var state = RecorderState()
@@ -140,10 +150,8 @@ struct HotkeyRecorder: View {
         state.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             if e.keyCode == UInt16(kVK_Escape) { stop(); return nil }
             let k = Hotkey(keyCode: UInt32(e.keyCode), modifiers: carbonModifiers(e.modifierFlags))
-            if k.isReservedBySystem {
-                state.problem = "\(k.displayString) is used by macOS"
-            } else if !k.isUsableGlobally {
-                state.problem = "Add ⌃, ⌥ or ⌘"
+            if let problem = hotkeyProblem(k, other: other, otherName: otherName) {
+                state.problem = problem
             } else {
                 onSet(k)
                 stop()
@@ -195,6 +203,7 @@ final class SettingsWindowController {
             }
             window = w
         }
+        model.loginStatus = SMAppService.mainApp.status
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
     }
