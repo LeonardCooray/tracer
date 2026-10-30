@@ -18,6 +18,7 @@ enum DebugSelfTest {
             case "review": await review(c)
             case "text": await textEdits(c)
             case "capture2": await capture2(c)
+            case "displays2": await displays2(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -481,6 +482,40 @@ enum DebugSelfTest {
         check(c.frames.values.allSatisfy { $0.scale == 2 }, "a stale capture can't replace the newer one")
         check(c.overlays.panels.values.allSatisfy { !$0.ignoresMouseEvents }, "overlay takes clicks once frames arrive")
         c.send(.escape)
+    }
+
+    static func displays2(_ c: AppController) async {
+        let original = c.settings
+        defer { c.update(original) }
+        var s = original
+        s.fadeDelay = 5
+        c.update(s)
+        c.send(.penHotkey)
+        await pause(0.3)
+        c.overlays.forgetPanels()
+        c.screensChanged(force: true)
+        check(!c.overlays.inkViews.isEmpty && c.overlays.inkViews.values.allSatisfy { $0.model.mode == .live(delay: 5) },
+              "overlays added mid-drawing use the fade setting")
+
+        guard let screen = NSScreen.screens.first else { return }
+        c.dock.setFrame(c.dock.frame.offsetBy(dx: -5000, dy: 0), display: false)
+        c.screensChanged(force: true)
+        await pause(0.4)
+        check(screen.visibleFrame.contains(c.dock.frame), "dock moves back on screen after a display change (\(c.dock.frame))")
+
+        guard let v = c.overlays.inkViews.values.first else { return }
+        c.send(.command(.selectTool(.spotlight)))
+        v.setPointer(nil)
+        check((pixel(v, at: NSPoint(x: 100, y: 100))?.alphaComponent ?? 0) > 0.4, "spotlight dims displays the pointer isn't on")
+        c.send(.command(.selectTool(.pen)))
+        c.send(.penHotkey)
+
+        c.dock.slideIn(onRightEdgeOf: screen)
+        c.dock.slideOut()
+        c.dock.slideIn(onRightEdgeOf: screen)
+        await pause(0.5)
+        check(c.dock.isVisible, "a quick off/on leaves the dock showing")
+        c.dock.orderOut(nil)
     }
 
     static func live(_ c: AppController) async {

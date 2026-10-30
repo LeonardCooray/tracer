@@ -108,18 +108,19 @@ final class InkView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let t = Self.now
-        if tool == .spotlight, let p = pointer { drawSpotlight(at: p, in: ctx) }
+        if tool == .spotlight { drawSpotlight(at: pointer, in: ctx) }
         InkRenderer.draw(model.strokes, in: ctx) { model.opacity(of: $0, at: t) }
         guard let p = pointer else { return }
         if showsCursorRing { drawRing(at: p, in: ctx) }
         if showsPointerLabel { drawLabel(pointerLabel(tool: tool, fadeDelay: fadeDelay, shiftHeld: shiftHeld), at: p) }
     }
 
-    private func drawSpotlight(at p: NSPoint, in ctx: CGContext) {
+    // With the pointer on another display, this one is dimmed entirely.
+    private func drawSpotlight(at p: NSPoint?, in ctx: CGContext) {
         let r = Self.spotlightRadius
         ctx.saveGState()
         ctx.addRect(bounds)
-        ctx.addEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
+        if let p { ctx.addEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)) }
         ctx.setFillColor(CGColor(gray: 0, alpha: 0.55))
         ctx.fillPath(using: .evenOdd)
         ctx.restoreGState()

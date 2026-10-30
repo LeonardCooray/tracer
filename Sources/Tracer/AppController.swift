@@ -95,9 +95,10 @@ final class AppController: NSObject {
         strokeOrder.removeAll { !live.contains(ObjectIdentifier($0)) }
         if session.mode == .drawing {
             enterLiveChrome(true)
-            if let id = dockDisplay, overlays.screen(of: id) == nil, let s = screenUnderPointer {
-                dockDisplay = s.displayID
-                dock.slideIn(onRightEdgeOf: s)
+            let screen = dockDisplay.flatMap { overlays.screen(of: $0) } ?? screenUnderPointer
+            if let screen {
+                dockDisplay = screen.displayID
+                dock.slideIn(onRightEdgeOf: screen)
             }
         }
         updateIdleRing()
@@ -178,6 +179,11 @@ final class AppController: NSObject {
         }
         capture.onSelectionChanged = { [weak self] in self?.selectionChanged(in: $0) }
         applyStyle(to: ink)
+        switch session.mode {
+        case .idle: break
+        case .drawing: ink.model.mode = .live(delay: fadeDelay)
+        case .capturing: ink.model.mode = .frozen
+        }
     }
 
     private func registerHotkeys() {
