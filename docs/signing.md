@@ -17,7 +17,17 @@ macOS ties the Screen Recording permission to the app's code signature. An ad-ho
    security find-identity -v -p codesigning
    ```
 
-   You should see a line ending in `"Tracer Local Signing"`.
+   You should see a line with `"Tracer Local Signing"`, probably marked `CSSMERR_TP_NOT_TRUSTED`. That's expected for a self-signed certificate and doesn't stop it signing. Don't use `-v`, which lists only trusted identities.
+
+If Keychain Access saves the certificate to iCloud or Local Items, code signing can't see it. Recreate it with **Let me override defaults** ticked, and choose the **login** keychain.
+
+### Or import a ready-made certificate
+
+If you have a `.p12` file containing the `Tracer Local Signing` certificate and key, import it into the login keychain and let `codesign` use it:
+
+```bash
+security import tracer-signing.p12 -k ~/Library/Keychains/login.keychain-db -P <p12 password> -T /usr/bin/codesign
+```
 
 The first time `scripts/bundle.sh` signs with it, macOS may ask to let `codesign` use the key. Choose **Always Allow**.
 
