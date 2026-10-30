@@ -1,0 +1,18 @@
+public enum Tool: Int, CaseIterable, Codable, Sendable {
+    case pen = 1, highlighter, arrow, rectangle, spotlight, text
+
+    public var displayName: String {
+        switch self {
+        case .pen: "Pen"
+        case .highlighter: "Highlighter"
+        case .arrow: "Arrow"
+        case .rectangle: "Rectangle"
+        case .spotlight: "Spotlight"
+        case .text: "Text"
+        }
+    }
+
+    public static func forDigit(_ d: Int) -> Tool? { Tool(rawValue: d) }
+
+    public var availableInCapture: Bool { self != .spotlight }
+}
