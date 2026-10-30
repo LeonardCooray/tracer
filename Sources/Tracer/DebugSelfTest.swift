@@ -30,6 +30,7 @@ enum DebugSelfTest {
             case "capture2": await capture2(c)
             case "displays2": await displays2(c)
             case "keys": await keys(c)
+            case "redraw": await redraw(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -550,6 +551,33 @@ enum DebugSelfTest {
         squatter.unregister(id: 88)
         c.send(.penHotkey)
         check(c.sessionKeyWarnings.isEmpty, "warning clears once the key is free")
+        c.send(.penHotkey)
+    }
+
+    static func redraw(_ c: AppController) async {
+        c.send(.penHotkey)
+        await pause(0.3)
+        guard let v = c.overlays.inkViews.values.first, let w = v.window else { return }
+        let full = v.bounds.width * v.bounds.height
+        func share() -> CGFloat {
+            let f = v.largestInvalidation / full
+            return f.isFinite ? min(f, 1) : 1
+        }
+        func fraction(_ body: () -> Void) -> CGFloat {
+            v.largestInvalidation = 0
+            body()
+            return share()
+        }
+        let move = fraction { v.mouseMoved(with: mouse(.mouseMoved, NSPoint(x: 400, y: 400), in: w)) }
+        check(move < 0.05, "pointer move redraws only around the pointer (\(Int(move * 100))% of screen)")
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 400, y: 400), in: w))
+        let dragF = fraction { v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 420, y: 410), in: w)) }
+        check(dragF < 0.05, "drawing redraws only the new ink (\(Int(dragF * 100))% of screen)")
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 420, y: 410), in: w))
+        await pause(3.1)
+        v.largestInvalidation = 0
+        await pause(0.3)
+        check(share() < 0.05, "fading redraws only the fading ink (\(Int(share() * 100))%)")
         c.send(.penHotkey)
     }
 
