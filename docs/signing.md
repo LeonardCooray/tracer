@@ -14,7 +14,7 @@ macOS ties the Screen Recording permission to the app's code signature. An ad-ho
 5. Check it's usable:
 
    ```bash
-   security find-identity -v -p codesigning
+   security find-identity -p codesigning
    ```
 
    You should see a line with `"Tracer Local Signing"`, probably marked `CSSMERR_TP_NOT_TRUSTED`. That's expected for a self-signed certificate and doesn't stop it signing. Don't use `-v`, which lists only trusted identities.
