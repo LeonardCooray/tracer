@@ -11,13 +11,18 @@ final class MenuBarController: NSObject {
     override init() {
         super.init()
         statusItem.button?.image = NSImage(systemSymbolName: "scribble.variable", accessibilityDescription: "Tracer")
-        menu.addItem(item("Draw", #selector(draw)))
-        menu.addItem(item("Capture", #selector(capture)))
+        menu.addItem(item("Draw", #selector(draw(_:))))
+        menu.addItem(item("Capture", #selector(capture(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(settings), key: ","))
         menu.addItem(.separator())
         menu.addItem(item("Quit Tracer", #selector(quit), key: "q"))
         statusItem.menu = menu
+    }
+
+    func setShortcuts(draw: String, capture: String) {
+        menu.items.first { $0.action == #selector(draw(_:)) }?.title = "Draw  \(draw)"
+        menu.items.first { $0.action == #selector(capture(_:)) }?.title = "Capture  \(capture)"
     }
 
     func setWarnings(_ warnings: [String]) {
@@ -36,8 +41,8 @@ final class MenuBarController: NSObject {
         return i
     }
 
-    @objc private func draw() { onDraw?() }
-    @objc private func capture() { onCapture?() }
+    @objc private func draw(_ sender: Any?) { onDraw?() }
+    @objc private func capture(_ sender: Any?) { onCapture?() }
     @objc private func settings() { onSettings?() }
     @objc private func quit() { NSApp.terminate(nil) }
 }

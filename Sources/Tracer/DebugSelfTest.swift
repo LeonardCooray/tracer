@@ -13,6 +13,7 @@ enum DebugSelfTest {
             case "live": await live(c)
             case "tools": await tools(c)
             case "capture": await capture(c)
+            case "settings": await settings(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -217,6 +218,50 @@ enum DebugSelfTest {
         c.send(.escape)
         check(c.session.mode == .idle && v.model.strokes.isEmpty, "escape cancels capture")
         try? FileManager.default.removeItem(at: tmp)
+    }
+
+    static func settings(_ c: AppController) async {
+        let original = c.settings
+        defer { c.update(original) }
+        var s = original
+        s.penHotkey = Hotkey(keyCode: KeyCode.d, modifiers: Hotkey.control | Hotkey.option)
+        s.fadeDelay = 5
+        s.format = .jpeg
+        c.update(s)
+        check(c.hotkeyWarnings.isEmpty, "changed hotkey registers without relaunch \(c.hotkeyWarnings)")
+        check(SettingsStore(defaults: .standard).load() == c.settings, "settings persisted")
+        check(c.format == .jpeg, "format applied")
+        c.send(.penHotkey)
+        check(c.overlays.inkViews.values.allSatisfy { $0.model.mode == .live(delay: 5) }, "fade delay applied to new drawing")
+        c.send(.penHotkey)
+
+        var bad = c.settings
+        bad.captureHotkey = Hotkey(keyCode: KeyCode.four, modifiers: Hotkey.shift | Hotkey.command)
+        c.update(bad)
+        check(c.settings.captureHotkey == .defaultCapture, "reserved ⇧⌘4 rejected")
+
+        var ring = c.settings
+        ring.cursorRingAlwaysOn = true
+        c.update(ring)
+        await pause(0.2)
+        let panels = Array(c.overlays.panels.values)
+        check(panels.allSatisfy { $0.isVisible && $0.ignoresMouseEvents }, "idle cursor ring shows click-through overlays")
+        check(c.overlays.inkViews.values.allSatisfy { $0.showsCursorRing && !$0.showsPointerLabel }, "ring on, label off while idle")
+        c.send(.penHotkey)
+        check(panels.allSatisfy { !$0.ignoresMouseEvents }, "drawing still takes the mouse with ring setting on")
+        c.send(.penHotkey)
+        await pause(0.2)
+        check(panels.allSatisfy { $0.isVisible && $0.ignoresMouseEvents }, "back to click-through ring after drawing")
+        ring.cursorRingAlwaysOn = false
+        c.update(ring)
+        check(panels.allSatisfy { !$0.isVisible }, "ring off hides overlays")
+
+        c.settingsWindow.show()
+        await pause(0.5)
+        let w = c.settingsWindow.window
+        check(w?.isVisible == true && w?.title == "Tracer Settings", "settings window opens")
+        check((w?.frame.height ?? 0) > 200, "settings window has content (\(w?.frame.size ?? .zero))")
+        w?.close()
     }
 
     static func live(_ c: AppController) async {

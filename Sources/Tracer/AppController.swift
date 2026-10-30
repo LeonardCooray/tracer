@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import TracerCore
 
 @MainActor
@@ -14,6 +15,11 @@ final class AppController: NSObject {
     var capturer: ScreenCapturing = ScreenCapturer()
     var format: ImageFormat = .png
     var saveFolder = OutputController.defaultFolder
+    let store: SettingsStore
+    private(set) var settings: TracerSettings
+    lazy var settingsModel = SettingsModel(settings: settings)
+    lazy var settingsWindow = SettingsWindowController(model: settingsModel)
+    private var ringTimer: Timer?
     private(set) var lastSavedURL: URL?
     private(set) var frames: [CGDirectDisplayID: FrozenFrame] = [:]
     private var previousApp: NSRunningApplication?
@@ -26,18 +32,83 @@ final class AppController: NSObject {
 
     private enum HotkeyID { static let pen: UInt32 = 1, capture: UInt32 = 2 }
 
-    override init() {
+    init(defaults: UserDefaults = .standard) {
+        store = SettingsStore(defaults: defaults)
+        settings = store.load()
         super.init()
         overlays.configureView = { [weak self] ink, capture in self?.configure(ink, capture) }
         menuBar.onDraw = { [weak self] in self?.send(.penHotkey) }
         menuBar.onCapture = { [weak self] in self?.requestCapture() }
+        menuBar.onSettings = { [weak self] in self?.settingsWindow.show() }
+        settingsModel.onChange = { [weak self] in self?.update($0) }
+        settingsModel.onRecording = { [weak self] recording in
+            guard let self else { return }
+            if recording { hotkeys.unregister(id: HotkeyID.pen); hotkeys.unregister(id: HotkeyID.capture) } else { registerHotkeys() }
+        }
         dockState.onCommand = { [weak self] in self?.send(.command($0)) }
         dockState.onColor = { [weak self] in self?.setColor($0) }
         dockState.onWidth = { [weak self] in self?.setWidth($0) }
         dockState.onMoreColors = { [weak self] in self?.showColorPanel() }
         text.onBegan = { [weak self] in self?.send(.textEditingBegan) }
         text.onEnded = { [weak self] in self?.send(.textEditingEnded) }
-        registerHotkeys()
+        apply(settings, previous: nil)
+    }
+
+    func update(_ new: TracerSettings) {
+        let old = settings
+        settings = new.validated()
+        store.save(settings)
+        apply(settings, previous: old)
+    }
+
+    private func apply(_ s: TracerSettings, previous: TracerSettings?) {
+        format = s.format
+        saveFolder = s.saveFolder
+        fadeDelay = s.fadeDelay
+        session.setFadeDelay(s.fadeDelay)
+        overlays.inkViews.values.forEach(applyStyle)
+        if previous?.penHotkey != s.penHotkey || previous?.captureHotkey != s.captureHotkey || previous == nil { registerHotkeys() }
+        if let previous, previous.launchAtLogin != s.launchAtLogin { setLaunchAtLogin(s.launchAtLogin) }
+        settingsModel.settings = settings
+        updateIdleRing()
+    }
+
+    private func setLaunchAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            settingsModel.loginError = nil
+        } catch {
+            settingsModel.loginError = "Couldn't change launch at login: \(error.localizedDescription)"
+            settings.launchAtLogin = SMAppService.mainApp.status == .enabled
+            store.save(settings)
+            settingsModel.settings = settings
+        }
+    }
+
+    private func updateIdleRing() {
+        let want = session.mode == .idle && settings.cursorRingAlwaysOn
+        if want {
+            overlays.show(interactive: false)
+            for v in overlays.inkViews.values { v.showsCursorRing = true; v.showsPointerLabel = false }
+            if ringTimer == nil {
+                ringTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.trackRing() }
+                }
+            }
+        } else {
+            ringTimer?.invalidate()
+            ringTimer = nil
+            if session.mode == .idle { overlays.hide() }
+        }
+    }
+
+    private func trackRing() {
+        let m = NSEvent.mouseLocation
+        for (id, v) in overlays.inkViews {
+            guard let f = overlays.screen(of: id)?.frame else { continue }
+            let p = f.contains(m) ? NSPoint(x: m.x - f.minX, y: m.y - f.minY) : nil
+            if p != v.pointer { v.setPointer(p) }
+        }
     }
 
     private func configure(_ ink: InkView, _ capture: CaptureView) {
@@ -52,20 +123,24 @@ final class AppController: NSObject {
 
     private func registerHotkeys() {
         var warnings: [String] = []
-        if !hotkeys.register(.defaultPen, id: HotkeyID.pen, handler: { [weak self] in self?.send(.penHotkey) }) {
-            warnings.append("Draw hotkey \(Hotkey.defaultPen.displayString) unavailable")
+        let pen = settings.penHotkey, cap = settings.captureHotkey
+        if !hotkeys.register(pen, id: HotkeyID.pen, handler: { [weak self] in self?.send(.penHotkey) }) {
+            warnings.append("Draw hotkey \(pen.displayString) is taken by another app")
         }
-        if !hotkeys.register(.defaultCapture, id: HotkeyID.capture, handler: { [weak self] in self?.requestCapture() }) {
-            warnings.append("Capture hotkey \(Hotkey.defaultCapture.displayString) unavailable")
+        if !hotkeys.register(cap, id: HotkeyID.capture, handler: { [weak self] in self?.requestCapture() }) {
+            warnings.append("Capture hotkey \(cap.displayString) is taken by another app")
         }
         hotkeyWarnings = warnings
         menuBar.setWarnings(warnings)
+        settingsModel.warnings = warnings
+        menuBar.setShortcuts(draw: pen.displayString, capture: cap.displayString)
     }
 
     func send(_ event: SessionEvent) {
         for effect in session.handle(event) { perform(effect) }
         dockState.tool = session.tool
         dockState.mode = session.mode
+        updateIdleRing()
     }
 
     func requestCapture() {
