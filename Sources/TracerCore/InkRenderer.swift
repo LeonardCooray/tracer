@@ -5,7 +5,8 @@ import Foundation
 public enum InkRenderer {
     public static let highlighterAlpha = 0.4
 
-    public static func draw(_ strokes: [Stroke], in ctx: CGContext, opacity: (Stroke) -> Double) {
+    public static func draw(_ strokes: [Stroke], in ctx: CGContext, highlighterBlend: CGBlendMode = .normal,
+                            opacity: (Stroke) -> Double) {
         for s in strokes {
             let o = opacity(s)
             guard o > 0, let first = s.points.first else { continue }
@@ -24,11 +25,13 @@ public enum InkRenderer {
                 ctx.strokePath()
             case .highlighter:
                 ctx.setLineCap(.square)
+                ctx.setBlendMode(highlighterBlend)
                 ctx.setAlpha(o * highlighterAlpha)
                 ctx.addPath(smoothPath(s.points))
                 ctx.strokePath()
             case .arrow:
                 let end = s.points.last!
+                guard hypot(end.x - first.x, end.y - first.y) >= minimumArrowLength else { break }
                 let (a, b) = arrowHead(from: first, to: end, width: s.style.width)
                 ctx.move(to: first); ctx.addLine(to: end)
                 ctx.move(to: a); ctx.addLine(to: end); ctx.addLine(to: b)
@@ -46,6 +49,8 @@ public enum InkRenderer {
         }
     }
 
+    public static let minimumArrowLength = 2.0
+
     // A pen path through the midpoints of successive samples, so fast strokes stay smooth.
     static func smoothPath(_ pts: [CGPoint]) -> CGPath {
         let path = CGMutablePath()
@@ -60,13 +65,14 @@ public enum InkRenderer {
         return path
     }
 
+    static func attributes(size: Double, color: CGColor) -> [NSAttributedString.Key: Any] {
+        [NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateUIFontForLanguage(.emphasizedSystem, size, nil)!,
+         NSAttributedString.Key(kCTForegroundColorAttributeName as String): color]
+    }
+
     // The point is the baseline origin of the first line.
     static func drawText(_ text: String, at point: CGPoint, size: Double, color: CGColor, in ctx: CGContext) {
-        let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, size, nil)!
-        let attrs: [NSAttributedString.Key: Any] = [
-            NSAttributedString.Key(kCTFontAttributeName as String): font,
-            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
-        ]
+        let attrs = attributes(size: size, color: color)
         var y = point.y
         for line in text.components(separatedBy: "\n") {
             let ctLine = CTLineCreateWithAttributedString(NSAttributedString(string: line, attributes: attrs))
@@ -74,5 +80,39 @@ public enum InkRenderer {
             CTLineDraw(ctLine, ctx)
             y -= size * 1.25
         }
+    }
+}
+
+// Everything a stroke can paint, for partial redraws.
+public func inkBounds(of s: Stroke) -> CGRect {
+    guard let first = s.points.first else { return .null }
+    let w = s.style.width
+    func box(_ pts: [CGPoint], pad: Double) -> CGRect {
+        let xs = pts.map(\.x), ys = pts.map(\.y)
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+            .insetBy(dx: -pad, dy: -pad)
+    }
+    switch s.tool {
+    case .pen: return box(s.points, pad: w / 2 + 1)
+    case .highlighter: return box(s.points, pad: w * 0.75 + 1)
+    case .rectangle: return box([first, s.points.last!], pad: w / 2 + 1)
+    case .arrow:
+        let end = s.points.last!
+        let (a, b) = arrowHead(from: first, to: end, width: w)
+        return box([first, end, a, b], pad: w / 2 + 1)
+    case .text:
+        let lines = (s.text ?? "").components(separatedBy: "\n")
+        let attrs = InkRenderer.attributes(size: w, color: CGColor(gray: 0, alpha: 1))
+        var maxWidth = 0.0, ascent: CGFloat = 0, descent: CGFloat = 0
+        for line in lines {
+            let ct = CTLineCreateWithAttributedString(NSAttributedString(string: line, attributes: attrs))
+            var a: CGFloat = 0, d: CGFloat = 0
+            maxWidth = max(maxWidth, CTLineGetTypographicBounds(ct, &a, &d, nil))
+            ascent = max(ascent, a); descent = max(descent, d)
+        }
+        let lastBaseline = first.y - Double(lines.count - 1) * w * 1.25
+        return CGRect(x: first.x, y: lastBaseline - descent, width: maxWidth, height: first.y + ascent - (lastBaseline - descent))
+            .insetBy(dx: -3, dy: -3)
+    case .spotlight: return .null
     }
 }

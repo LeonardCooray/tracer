@@ -17,7 +17,7 @@ public enum Compositor {
         ctx.draw(crop, in: CGRect(x: 0, y: 0, width: clipped.width, height: clipped.height))
         ctx.translateBy(x: -clipped.minX, y: -clipped.minY)
         ctx.scaleBy(x: baseScale, y: baseScale)
-        InkRenderer.draw(strokes.filter { $0.tool != .spotlight }, in: ctx) { _ in 1 }
+        InkRenderer.draw(strokes.filter { $0.tool != .spotlight }, in: ctx, highlighterBlend: .multiply) { _ in 1 }
         return ctx.makeImage()
     }
 }
