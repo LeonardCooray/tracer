@@ -43,10 +43,13 @@ public enum InkRenderer {
             case .text:
                 drawText(s.text ?? "", at: first, size: s.style.width, color: color, in: ctx)
             case .redact:
+                // Whole device pixels, opaque and unantialiased, so no original pixel blends into an edge.
                 let end = s.points.last!
+                let r = CGRect(x: min(first.x, end.x), y: min(first.y, end.y), width: abs(end.x - first.x), height: abs(end.y - first.y))
                 ctx.setAlpha(1)
-                ctx.fill(CGRect(x: min(first.x, end.x), y: min(first.y, end.y),
-                                width: abs(end.x - first.x), height: abs(end.y - first.y)))
+                ctx.setShouldAntialias(false)
+                ctx.setFillColor(CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1))
+                ctx.fill(ctx.convertToUserSpace(ctx.convertToDeviceSpace(r).integral))
             case .spotlight:
                 break
             }

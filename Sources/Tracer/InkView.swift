@@ -121,10 +121,14 @@ final class InkView: NSView {
     }
 
     private func endActiveStroke() {
-        if let s = model.strokes.last, s.tool == .redact, let c = fill(for: s, maxSide: nil) { model.setActiveColor(c) }
+        // A redact box with no fill from the frame is dropped rather than drawn in the dock colour.
+        var unfilled = false
+        if let s = model.strokes.last, s.tool == .redact {
+            if let c = fill(for: s, maxSide: nil) { model.setActiveColor(c) } else { unfilled = true }
+        }
         model.end(at: Self.now)
         invalidateActiveStroke()
-        if let s = model.strokes.last, isTooSmall(s) {
+        if let s = model.strokes.last, unfilled || isTooSmall(s) {
             model.remove(id: s.id)
             return
         }

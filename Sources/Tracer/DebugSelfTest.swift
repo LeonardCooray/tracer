@@ -821,6 +821,13 @@ enum DebugSelfTest {
         dragCV(NSPoint(x: mid + 100, y: 500), NSPoint(x: mid + 200, y: 500.5))
         check(v.model.strokes.count == count, "tiny box dropped")
 
+        let tiny = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!.makeImage()!
+        v.frozenFrame = FrozenFrame(image: tiny, scale: 1)
+        dragCV(NSPoint(x: mid - 50, y: 500), NSPoint(x: mid + 50, y: 600))
+        check(v.model.strokes.count == count, "box with no fill is dropped")
+        v.frozenFrame = frame
+
         c.send(.command(.selectTool(.arrow)))
         dragCV(NSPoint(x: mid + 250, y: 250), NSPoint(x: mid + 450, y: 250))
         c.send(.command(.selectTool(.redact)))

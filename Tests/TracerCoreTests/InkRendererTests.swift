@@ -171,3 +171,11 @@ private func stroke(_ tool: Tool, _ pts: [CGPoint], color: RGBA = RGBA(hex: 0xFF
                    style: StrokeStyle(color: RGBA(hex: 0), width: 0))
     #expect(inkBounds(of: s) == CGRect(x: 9, y: 9, width: 52, height: 32))
 }
+
+@Test func redactIgnoresColourAlpha() {
+    let c = Canvas(background: RGBA(hex: 0x000000))
+    let s = Stroke(tool: .redact, points: [CGPoint(x: 10, y: 10), CGPoint(x: 60, y: 40)],
+                   style: StrokeStyle(color: RGBA(hex: 0x808080, alpha: 0.3), width: 0), finishedAt: 0)
+    InkRenderer.draw([s], in: c.ctx) { _ in 1 }
+    #expect(c.pixel(35, 25) == (128, 128, 128, 255))
+}
