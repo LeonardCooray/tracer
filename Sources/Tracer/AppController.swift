@@ -19,7 +19,7 @@ final class AppController: NSObject {
     private(set) var settings: TracerSettings
     lazy var settingsModel = SettingsModel(settings: settings)
     lazy var settingsWindow = SettingsWindowController(model: settingsModel)
-    private var ringTimer: Timer?
+    private(set) var ringMonitors: [Any] = []
     private let defaults: UserDefaults
     private static let askedKey = "askedForScreenRecording"
     private var captureGeneration = 0
@@ -160,14 +160,22 @@ final class AppController: NSObject {
         if want {
             overlays.show(interactive: false)
             for v in overlays.inkViews.values { v.showsCursorRing = true; v.showsPointerLabel = false }
-            if ringTimer == nil {
-                ringTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            if ringMonitors.isEmpty {
+                // Driven by mouse events, so a still mouse costs nothing; mouse monitors need no permission.
+                let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+                let global = NSEvent.addGlobalMonitorForEvents(matching: moves) { [weak self] _ in
                     MainActor.assumeIsolated { self?.trackRing() }
                 }
+                let local = NSEvent.addLocalMonitorForEvents(matching: moves) { [weak self] e in
+                    MainActor.assumeIsolated { self?.trackRing() }
+                    return e
+                }
+                ringMonitors = [global, local].compactMap { $0 }
             }
+            trackRing()
         } else {
-            ringTimer?.invalidate()
-            ringTimer = nil
+            ringMonitors.forEach(NSEvent.removeMonitor)
+            ringMonitors = []
             if session.mode == .idle { overlays.hide() }
         }
     }
