@@ -33,3 +33,8 @@ import Testing
     #expect(command(for: .digit(1), mode: .idle, isEditingText: false) == nil)
     #expect(command(for: .escape, mode: .drawing, isEditingText: false) == nil)
 }
+
+@Test func digitFiveIsRedactWhileCapturing() {
+    #expect(command(for: .digit(5), mode: .capturing, isEditingText: false) == .selectTool(.redact))
+    #expect(command(for: .digit(5), mode: .drawing, isEditingText: false) == .selectTool(.spotlight))
+}

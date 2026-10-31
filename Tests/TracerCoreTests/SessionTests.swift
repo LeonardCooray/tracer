@@ -137,3 +137,21 @@ private let exitEffects: [SessionEffect] = [.hideOverlays, .clearInk, .unregiste
     #expect(!s.isEditingText)
     #expect(s.mode == .idle)
 }
+
+@Test func redactNotSelectableWhileDrawing() {
+    var s = Session()
+    _ = s.handle(.penHotkey)
+    #expect(s.handle(.command(.selectTool(.redact))).isEmpty)
+    #expect(s.tool == .pen)
+}
+
+@Test func drawingAfterRedactFallsBackToPen() {
+    var s = Session()
+    _ = s.handle(.captureHotkey)
+    _ = s.handle(.command(.selectTool(.redact)))
+    #expect(s.tool == .redact)
+    _ = s.handle(.escape)
+    let fx = s.handle(.penHotkey)
+    #expect(s.tool == .pen)
+    #expect(fx.contains(.selectTool(.pen)))
+}

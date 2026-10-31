@@ -2,15 +2,20 @@ import Testing
 @testable import TracerCore
 
 @Test func digitsMapToTools() {
-    #expect(Tool.forDigit(1) == .pen)
-    #expect(Tool.forDigit(6) == .text)
-    #expect(Tool.forDigit(0) == nil)
-    #expect(Tool.forDigit(7) == nil)
+    #expect(Tool.forDigit(1, mode: .drawing) == .pen)
+    #expect(Tool.forDigit(6, mode: .drawing) == .text)
 }
 
-@Test func spotlightIsLiveOnly() {
-    #expect(!Tool.spotlight.availableInCapture)
-    #expect(Tool.allCases.filter { !$0.availableInCapture } == [.spotlight])
+@Test func digitFiveDependsOnMode() {
+    #expect(Tool.forDigit(5, mode: .capturing) == .redact)
+    #expect(Tool.forDigit(5, mode: .drawing) == .spotlight)
+    #expect(Tool.forDigit(6, mode: .capturing) == .text)
+    #expect(Tool.forDigit(7, mode: .capturing) == nil && Tool.forDigit(0, mode: .drawing) == nil)
+}
+
+@Test func availabilityByMode() {
+    #expect(!Tool.redact.isAvailable(in: .drawing) && Tool.redact.isAvailable(in: .capturing))
+    #expect(!Tool.spotlight.isAvailable(in: .capturing) && Tool.spotlight.isAvailable(in: .drawing))
 }
 
 @Test func displayNames() {

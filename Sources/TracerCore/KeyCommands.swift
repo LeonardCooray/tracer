@@ -9,7 +9,7 @@ public enum SessionKey: Equatable, Hashable, Sendable {
 public func command(for key: SessionKey, mode: AppMode, isEditingText: Bool) -> SessionCommand? {
     guard !isEditingText, mode != .idle else { return nil }
     switch key {
-    case .digit(let d): return Tool.forDigit(d).map(SessionCommand.selectTool)
+    case .digit(let d): return Tool.forDigit(d, mode: mode).map(SessionCommand.selectTool)
     case .delete: return .clearAll
     case .undo: return .undo
     case .redo: return .redo

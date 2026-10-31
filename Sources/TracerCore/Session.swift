@@ -41,14 +41,15 @@ public struct Session: Sendable {
         case (.idle, .penHotkey):
             mode = .drawing
             return [.showOverlays(interactive: true), .setFadeMode(.live(delay: fadeDelay)), .registerSessionKeys(capture: false)]
+                + fallBackIfUnavailable()
         case (.idle, .captureHotkey):
             mode = .capturing
             return [.freezeScreens, .showOverlays(interactive: true), .setFadeMode(.frozen), .registerSessionKeys(capture: true)]
-                + fallBackFromSpotlight()
+                + fallBackIfUnavailable()
         case (.drawing, .captureHotkey):
             mode = .capturing
             isEditingText = false
-            return [.freezeScreens, .setFadeMode(.frozen), .registerSessionKeys(capture: true)] + fallBackFromSpotlight()
+            return [.freezeScreens, .setFadeMode(.frozen), .registerSessionKeys(capture: true)] + fallBackIfUnavailable()
         case (_, .escape) where isEditingText:
             isEditingText = false
             return []
@@ -74,8 +75,8 @@ public struct Session: Sendable {
         return [.hideOverlays, .clearInk, .unregisterSessionKeys, .restorePreviousApp]
     }
 
-    private mutating func fallBackFromSpotlight() -> [SessionEffect] {
-        guard !tool.availableInCapture else { return [] }
+    private mutating func fallBackIfUnavailable() -> [SessionEffect] {
+        guard !tool.isAvailable(in: mode) else { return [] }
         tool = .pen
         return [.selectTool(.pen)]
     }
@@ -83,7 +84,7 @@ public struct Session: Sendable {
     private mutating func apply(_ c: SessionCommand) -> [SessionEffect] {
         switch c {
         case .selectTool(let t):
-            if mode == .capturing && !t.availableInCapture { return [] }
+            if !t.isAvailable(in: mode) { return [] }
             tool = t
             return [.selectTool(t)]
         case .undo: return [.undo]
