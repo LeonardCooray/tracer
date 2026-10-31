@@ -46,6 +46,7 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 - Freeze the screen, drag a selection, then copy or save
 - Full Retina size, as PNG or JPEG
 - Works mid-drawing, so your annotations land in the shot
+- Redact hides anything sensitive under a solid block, filled with the average colour of whatever it covers. Nothing under the block survives in the copied or saved image
 - The spotlight and cursor ring are for pointing live and never appear in screenshots
 
 <img src="docs/images/capture.png" alt="Capture mode: a selected chart with an arrow and circle drawn on it, and the dock snapped to the selection with Copy and Save" width="800">
@@ -72,6 +73,7 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 
 | Key | What it does |
 |---|---|
+| 1–6 | Pen, highlighter, arrow, rectangle, redact, text |
 | Return or ⌘C | Copy the selection |
 | ⌘S | Save the selection to your folder |
 | ⌘Z / ⌘⇧Z | Undo / redo |
@@ -122,7 +124,7 @@ scripts/bundle.sh --debug
 build/Tracer.app/Contents/MacOS/Tracer --self-test live
 ```
 
-The other suites are `tools`, `capture`, `settings` and `displays`.
+The other suites are `tools`, `capture`, `redact`, `settings` and `displays`.
 
 ## Releasing
 
