@@ -55,6 +55,7 @@ final class HotkeyCenter {
             (Hotkey(keyCode: KeyCode.delete, modifiers: 0), .delete),
             (Hotkey(keyCode: KeyCode.forwardDelete, modifiers: 0), .delete),
             (Hotkey(keyCode: KeyCode.z, modifiers: Hotkey.command), .undo),
+            (Hotkey(keyCode: KeyCode.z, modifiers: Hotkey.command | Hotkey.shift), .redo),
         ]
         if capture {
             keys += [

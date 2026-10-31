@@ -693,6 +693,12 @@ enum DebugSelfTest {
 
     static func live(_ c: AppController) async {
         check(c.hotkeyWarnings.isEmpty, "global hotkeys registered \(c.hotkeyWarnings)")
+        let titles = c.menuBar.menu.items.map(\.title)
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        check(titles.contains("Tracer \(version)") && c.menuBar.menu.items.first { $0.title == "Tracer \(version)" }?.isEnabled == false,
+              "menu shows the version (\(titles))")
+        check(titles.contains("Check for Updates…") && MenuBarController.releasesURL.absoluteString.hasSuffix("/releases/latest"),
+              "menu links to the latest release")
         c.send(.penHotkey)
         await pause(0.3)
         let panels = Array(c.overlays.panels.values)
@@ -713,9 +719,22 @@ enum DebugSelfTest {
 
         c.send(.command(.undo))
         check(v.model.strokes.isEmpty, "undo removes last stroke")
+        c.send(.command(.redo))
+        check(v.model.strokes.count == 1 && v.model.strokes[0].pinned, "redo brings back the undone stroke")
+        check(painted(v, at: NSPoint(x: 400, y: 500)), "redone stroke paints")
+        c.send(.command(.undo))
+        drag(v, from: NSPoint(x: 200, y: 600), to: NSPoint(x: 600, y: 600), shift: true)
+        c.send(.command(.redo))
+        check(v.model.strokes.count == 1, "a new stroke empties the redo list")
+        c.send(.command(.clearAll))
         drag(v, from: NSPoint(x: 200, y: 400), to: NSPoint(x: 600, y: 400), shift: true)
         c.send(.command(.clearAll))
         check(v.model.strokes.isEmpty, "clear removes all")
+        c.send(.command(.redo))
+        check(v.model.strokes.isEmpty, "redo can't bring back cleared ink")
+        c.send(.command(.undo))
+        c.send(.command(.redo))
+        check(v.model.strokes.isEmpty, "nothing to undo or redo after a clear")
 
         c.send(.penHotkey)
         await pause(0.3)

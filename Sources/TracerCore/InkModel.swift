@@ -44,11 +44,19 @@ public final class InkModel {
     public var isDrawing: Bool { activeIndex != nil }
 
     @discardableResult
-    public func remove(id: UUID) -> Bool {
-        guard let i = strokes.firstIndex(where: { $0.id == id }) else { return false }
+    public func remove(id: UUID) -> Bool { take(id: id) != nil }
+
+    public func take(id: UUID) -> Stroke? {
+        guard let i = strokes.firstIndex(where: { $0.id == id }) else { return nil }
         if let a = activeIndex { activeIndex = a == i ? nil : (a > i ? a - 1 : a) }
-        strokes.remove(at: i)
-        return true
+        return strokes.remove(at: i)
+    }
+
+    // Redo puts a stroke back with its fade restarted.
+    public func restore(_ stroke: Stroke, at time: TimeInterval) {
+        var s = stroke
+        s.finishedAt = time
+        strokes.append(s)
     }
 
     public func undo() {

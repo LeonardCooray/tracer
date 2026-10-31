@@ -59,6 +59,19 @@ private func finishedStroke(_ m: InkModel, at time: Double, pinned: Bool = false
     #expect(m.strokes.isEmpty)
 }
 
+@Test func takenStrokeRestoresWithFreshFade() {
+    let m = InkModel(mode: .live(delay: 3))
+    finishedStroke(m, at: 1)
+    let id = m.strokes[0].id
+    let taken = m.take(id: id)
+    #expect(taken?.id == id && m.strokes.isEmpty)
+    #expect(m.take(id: id) == nil)
+    m.restore(taken!, at: 50)
+    #expect(m.strokes.map(\.id) == [id])
+    #expect(m.strokes[0].finishedAt == 50)
+    #expect(m.opacity(of: m.strokes[0], at: 52) == 1)
+}
+
 @Test func extendSkipsNearDuplicatePoints() {
     let m = InkModel(mode: .live(delay: 3))
     m.begin(tool: .pen, style: red, at: .zero, pinned: false)

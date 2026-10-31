@@ -141,9 +141,15 @@ final class InkView: NSView {
         endActiveStroke()
     }
 
-    func removeStroke(id: UUID) -> Bool {
+    func takeStroke(id: UUID) -> Stroke? {
         defer { needsDisplay = true }
-        return model.remove(id: id)
+        return model.take(id: id)
+    }
+
+    func restoreStroke(_ stroke: Stroke) {
+        model.restore(stroke, at: Self.now)
+        startFadeLoopIfNeeded()
+        needsDisplay = true
     }
 
     func clear() {

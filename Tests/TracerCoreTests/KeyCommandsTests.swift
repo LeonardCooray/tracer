@@ -5,6 +5,8 @@ import Testing
     #expect(command(for: .digit(3), mode: .drawing, isEditingText: false) == .selectTool(.arrow))
     #expect(command(for: .delete, mode: .drawing, isEditingText: false) == .clearAll)
     #expect(command(for: .undo, mode: .drawing, isEditingText: false) == .undo)
+    #expect(command(for: .redo, mode: .drawing, isEditingText: false) == .redo)
+    #expect(command(for: .redo, mode: .capturing, isEditingText: false) == .redo)
     #expect(command(for: .returnKey, mode: .capturing, isEditingText: false) == .copy)
     #expect(command(for: .copy, mode: .capturing, isEditingText: false) == .copy)
     #expect(command(for: .save, mode: .capturing, isEditingText: false) == .save)
@@ -15,7 +17,7 @@ import Testing
 }
 
 @Test func keysSuppressedWhileTyping() {
-    for key in [SessionKey.digit(1), .delete, .undo, .returnKey, .copy, .save] {
+    for key in [SessionKey.digit(1), .delete, .undo, .redo, .returnKey, .copy, .save] {
         #expect(command(for: key, mode: .drawing, isEditingText: true) == nil)
         #expect(command(for: key, mode: .capturing, isEditingText: true) == nil)
     }
