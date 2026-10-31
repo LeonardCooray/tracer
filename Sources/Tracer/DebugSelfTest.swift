@@ -33,6 +33,7 @@ enum DebugSelfTest {
             case "keys": await keys(c)
             case "redraw": await redraw(c)
             case "regress": await regress(c)
+            case "redact": await redact(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -751,6 +752,107 @@ enum DebugSelfTest {
         drag(v, from: NSPoint(x: 200, y: 300), to: NSPoint(x: 600, y: 300), shift: true)
         c.send(.escape)
         check(c.session.mode == .idle && v.model.strokes.isEmpty, "escape leaves drawing and clears ink")
+    }
+
+    // Frames are black on the left half of each display and white on the right.
+    final class HalfCapturer: ScreenCapturing {
+        var hasPermission: Bool { true }
+        func requestPermission() {}
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] {
+            var out: [CGDirectDisplayID: FrozenFrame] = [:]
+            for s in NSScreen.screens {
+                guard let id = s.displayID else { continue }
+                let scale = s.backingScaleFactor
+                let w = Int(s.frame.width * scale), h = Int(s.frame.height * scale)
+                let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+                ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+                ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+                ctx.fill(CGRect(x: 0, y: 0, width: w / 2, height: h))
+                out[id] = FrozenFrame(image: ctx.makeImage()!, scale: scale)
+            }
+            return out
+        }
+    }
+
+    static func redact(_ c: AppController) async {
+        c.capturer = HalfCapturer()
+        c.requestCapture()
+        await pause(0.5)
+        guard let (id, cv) = c.overlays.captureViews.first, let v = c.overlays.inkViews[id],
+              let screen = c.overlays.screen(of: id), let w = cv.window else { return }
+        let mid = (screen.frame.width / 2).rounded()
+        func dragCV(_ a: NSPoint, _ b: NSPoint) {
+            cv.mouseDown(with: mouse(.leftMouseDown, a, in: w))
+            for t in stride(from: 0.2, through: 1, by: 0.2) {
+                cv.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t), in: w))
+            }
+            cv.mouseUp(with: mouse(.leftMouseUp, b, in: w))
+        }
+        func grey(_ col: RGBA?, _ v: Double) -> Bool {
+            guard let col else { return false }
+            return abs(col.r - v) < 0.03 && abs(col.g - v) < 0.03 && abs(col.b - v) < 0.03 && col.a == 1
+        }
+        let sel = CGRect(x: 100, y: 100, width: screen.frame.width - 200, height: screen.frame.height - 200)
+        dragCV(sel.origin, NSPoint(x: sel.maxX, y: sel.maxY))
+
+        c.send(.command(command(for: .digit(5), mode: .capturing, isEditingText: false)!))
+        check(c.tool == .redact && Tool.tools(for: c.dockState.mode)[4] == .redact, "key 5 picks redact, fifth in the dock")
+
+        let frame = v.frozenFrame
+        v.frozenFrame = nil
+        dragCV(NSPoint(x: mid - 50, y: 300), NSPoint(x: mid + 50, y: 400))
+        check(v.model.strokes.isEmpty, "no redact before frames")
+        v.frozenFrame = frame
+
+        dragCV(NSPoint(x: mid - 50, y: 300), NSPoint(x: mid + 50, y: 400))
+        let box = v.model.strokes.last
+        check(box?.tool == .redact && grey(box?.style.color, 0.5), "box straddling the halves fills mid grey (\(String(describing: box?.style.color)))")
+        // The view renders in the display's colour space, so only check it's an opaque neutral grey.
+        let px = pixel(v, at: NSPoint(x: mid, y: 350))
+        check(px.map { $0.alphaComponent == 1 && abs($0.redComponent - $0.blueComponent) < 0.02 && (0.4...0.7).contains($0.redComponent) } == true,
+              "mid grey box is opaque on screen (\(String(describing: px)))")
+
+        dragCV(NSPoint(x: mid + 100, y: 300), NSPoint(x: mid + 200, y: 400))
+        check(grey(v.model.strokes.last?.style.color, 1), "box over white fills white")
+
+        let count = v.model.strokes.count
+        dragCV(NSPoint(x: mid + 100, y: 500), NSPoint(x: mid + 200, y: 500.5))
+        check(v.model.strokes.count == count, "tiny box dropped")
+
+        c.send(.command(.selectTool(.arrow)))
+        dragCV(NSPoint(x: mid + 250, y: 250), NSPoint(x: mid + 450, y: 250))
+        c.send(.command(.selectTool(.redact)))
+        dragCV(NSPoint(x: mid + 300, y: 200), NSPoint(x: mid + 400, y: 300))
+        let top = pixel(v, at: NSPoint(x: mid + 350, y: 250))
+        check(top.map { $0.redComponent > 0.8 && $0.greenComponent < 0.5 } == true, "arrow stays on top of a later redact box")
+
+        let fill = v.model.strokes.last?.style.color
+        c.send(.command(.undo))
+        c.send(.command(.redo))
+        check(v.model.strokes.last?.tool == .redact && v.model.strokes.last?.style.color == fill, "redo keeps the fill")
+
+        c.send(.command(.copy))
+        await pause(0.2)
+        let rep = NSPasteboard.general.data(forType: .png).flatMap { NSBitmapImageRep(data: $0) }
+        // Raw bytes: colorAt converts through a calibrated space and shifts mid grey.
+        var flat = rep != nil, first: [Int]?
+        if let rep {
+            let k = screen.backingScaleFactor
+            for y in stride(from: 302.0, through: 398, by: 4) { for x in stride(from: mid - 48, through: mid + 48, by: 4) {
+                var raw = [Int](repeating: 0, count: 4)
+                rep.getPixel(&raw, atX: Int((x - sel.minX) * k), y: Int((sel.maxY - y) * k))
+                if let f = first { if raw != f { flat = false } } else { first = raw }
+            } }
+        }
+        check(flat && first.map { abs($0[0] - 128) <= 1 && $0[0] == $0[1] && $0[1] == $0[2] && $0[3] == 255 } == true,
+              "copied image is one flat colour under the box (flat \(flat), \(String(describing: first)))")
+
+        check(c.session.mode == .idle && c.session.tool == .redact, "copy ends capture with redact still picked")
+        c.send(.penHotkey)
+        check(c.tool == .pen && c.session.tool == .pen, "drawing after a capture falls back to pen")
+        c.send(.escape)
     }
 }
 #endif

@@ -274,6 +274,7 @@ final class AppController: NSObject {
             overlays.inkViews.values.forEach { $0.showsCursorRing = false; $0.setPointer(nil) }
             overlays.captureViews.values.forEach { $0.reset() }
             overlays.frozenViews.values.forEach { $0.frame_ = nil }
+            overlays.inkViews.values.forEach { $0.frozenFrame = nil }
             frames = [:]
             redoStack.removeAll()
             overlays.hide()
@@ -360,6 +361,7 @@ final class AppController: NSObject {
                 frames = captured
                 for (id, frame) in captured {
                     overlays.frozenViews[id]?.frame_ = frame
+                    overlays.inkViews[id]?.frozenFrame = frame
                     if let c = overlays.captureViews[id] {
                         c.scale = frame.scale
                         c.format = format

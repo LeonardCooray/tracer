@@ -15,6 +15,7 @@ final class InkView: NSView {
     var onPointerMoved: ((InkView) -> Void)?
     private(set) var pointer: NSPoint?
     var acceptsInput = true
+    var frozenFrame: FrozenFrame?
     private var shiftHeld = false
     private var link: CADisplayLink?
 
@@ -90,6 +91,7 @@ final class InkView: NSView {
         switch tool {
         case .spotlight: return
         case .text: onTextClick?(self, p); return
+        case .redact where frozenFrame == nil: return
         default: break
         }
         model.begin(tool: tool, style: style, at: p, pinned: shiftHeld)
@@ -101,6 +103,7 @@ final class InkView: NSView {
         guard acceptsInput, model.isDrawing else { return }
         let before = model.strokes.last.map(inkBounds(of:))
         model.extend(to: convert(event.locationInWindow, from: nil))
+        if let s = model.strokes.last, s.tool == .redact, let c = fill(for: s, maxSide: 64) { model.setActiveColor(c) }
         guard let s = model.strokes.last else { return }
         if s.tool == .pen || s.tool == .highlighter {
             // Only the newest segments change; smoothing reaches back two points.
@@ -118,15 +121,21 @@ final class InkView: NSView {
     }
 
     private func endActiveStroke() {
+        if let s = model.strokes.last, s.tool == .redact, let c = fill(for: s, maxSide: nil) { model.setActiveColor(c) }
         model.end(at: Self.now)
         invalidateActiveStroke()
-        if let s = model.strokes.last, s.tool == .arrow, let a = s.points.first, let b = s.points.last,
-           hypot(b.x - a.x, b.y - a.y) < InkRenderer.minimumArrowLength {
+        if let s = model.strokes.last, isTooSmall(s) {
             model.remove(id: s.id)
             return
         }
         onStrokeEnded?(self)
         startFadeLoopIfNeeded()
+    }
+
+    private func fill(for s: Stroke, maxSide: Int?) -> RGBA? {
+        guard let f = frozenFrame, let a = s.points.first, let b = s.points.last else { return nil }
+        let r = CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
+        return meanColor(of: f.image, scale: f.scale, in: r, maxSide: maxSide)
     }
 
     func addText(_ text: String, baseline: NSPoint, style: StrokeStyle) {
