@@ -1,6 +1,8 @@
 <div align="center">
 
-# ✍️ Tracer
+<img src="docs/images/icon.png" alt="Tracer icon" width="128">
+
+# Tracer
 
 **Draw on your Mac's screen to point things out, then screenshot what you marked up.**
 
