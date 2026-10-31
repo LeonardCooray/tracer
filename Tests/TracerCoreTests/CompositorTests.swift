@@ -56,3 +56,34 @@ private func redPixels(_ img: CGImage) -> Int {
     let p = c.pixel(50, 50)
     #expect(p.r < 30 && p.g < 30)
 }
+
+@Test func compositeRedactIsOneColour() {
+    let board = Canvas(size: 200)
+    board.ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+    board.ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 200))
+    board.ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+    for y in 0..<200 { for x in 0..<200 where (x + y) % 2 == 0 { board.ctx.fill(CGRect(x: x, y: y, width: 1, height: 1)) } }
+    let s = Stroke(tool: .redact, points: [CGPoint(x: 10, y: 10), CGPoint(x: 40, y: 40)],
+                   style: StrokeStyle(color: RGBA(hex: 0x808080), width: 0), finishedAt: 0)
+    let out = Compositor.image(base: board.ctx.makeImage()!, baseScale: 2, strokes: [s], selection: CGRect(x: 0, y: 0, width: 50, height: 50))!
+    let c = Canvas(size: 100)
+    c.ctx.draw(out, in: CGRect(x: 0, y: 0, width: 100, height: 100))
+    var odd = 0
+    for y in 20...79 { for x in 20...79 where c.pixel(x, y) != (128, 128, 128, 255) { odd += 1 } }
+    #expect(odd == 0)
+}
+
+@Test func redactEdgesKeepNoOriginalPixels() {
+    let base = Canvas(size: 200, background: RGBA(hex: 0xFFFFFF))
+    base.ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+    base.ctx.fill(CGRect(x: 20, y: 0, width: 1, height: 200))
+    base.ctx.fill(CGRect(x: 0, y: 20, width: 200, height: 1))
+    let s = Stroke(tool: .redact, points: [CGPoint(x: 10.05, y: 10.05), CGPoint(x: 40.05, y: 40.05)],
+                   style: StrokeStyle(color: RGBA(hex: 0xFF0000), width: 0), finishedAt: 0)
+    let out = Compositor.image(base: base.ctx.makeImage()!, baseScale: 2, strokes: [s], selection: CGRect(x: 0, y: 0, width: 50, height: 50))!
+    let c = Canvas(size: 100)
+    c.ctx.draw(out, in: CGRect(x: 0, y: 0, width: 100, height: 100))
+    var odd = 0
+    for y in 20...80 { for x in 20...80 where c.pixel(x, y) != (255, 0, 0, 255) { odd += 1 } }
+    #expect(odd == 0)
+}

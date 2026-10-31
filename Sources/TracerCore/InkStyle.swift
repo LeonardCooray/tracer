@@ -35,6 +35,6 @@ public func defaultWidth(for tool: Tool) -> Double {
     case .highlighter: 18
     case .rectangle: 3.5
     case .text: 18
-    case .spotlight: 0
+    case .spotlight, .redact: 0
     }
 }

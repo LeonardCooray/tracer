@@ -23,6 +23,7 @@ extension Tool {
         case .rectangle: "rectangle"
         case .spotlight: "light.max"
         case .text: "textformat"
+        case .redact: "rectangle.fill"
         }
     }
 }
@@ -34,12 +35,12 @@ extension RGBA {
 struct DockView: View {
     @ObservedObject var state: DockState
 
-    private var tools: [Tool] { Tool.allCases.filter { state.mode != .capturing || $0.availableInCapture } }
+    private var tools: [Tool] { Tool.tools(for: state.mode) }
 
     var body: some View {
         VStack(spacing: 4) {
-            ForEach(tools, id: \.self) { tool in
-                button(tool.symbol, help: "\(tool.displayName) (\(tool.rawValue))", selected: state.tool == tool) {
+            ForEach(Array(tools.enumerated()), id: \.element) { i, tool in
+                button(tool.symbol, help: "\(tool.displayName) (\(i + 1))", selected: state.tool == tool) {
                     state.onCommand(.selectTool(tool))
                 }
             }

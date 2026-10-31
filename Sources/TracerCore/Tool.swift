@@ -1,5 +1,5 @@
 public enum Tool: Int, CaseIterable, Codable, Sendable {
-    case pen = 1, highlighter, arrow, rectangle, spotlight, text
+    case pen = 1, highlighter, arrow, rectangle, spotlight, text, redact
 
     public var displayName: String {
         switch self {
@@ -9,12 +9,21 @@ public enum Tool: Int, CaseIterable, Codable, Sendable {
         case .rectangle: "Rectangle"
         case .spotlight: "Spotlight"
         case .text: "Text"
+        case .redact: "Redact"
         }
     }
 
-    public static func forDigit(_ d: Int) -> Tool? { Tool(rawValue: d) }
+    // In dock order; the fifth slot is Spotlight live and Redact while capturing.
+    public static func tools(for mode: AppMode) -> [Tool] {
+        [.pen, .highlighter, .arrow, .rectangle, mode == .capturing ? .redact : .spotlight, .text]
+    }
 
-    public var availableInCapture: Bool { self != .spotlight }
+    public static func forDigit(_ d: Int, mode: AppMode) -> Tool? {
+        let list = tools(for: mode)
+        return list.indices.contains(d - 1) ? list[d - 1] : nil
+    }
+
+    public func isAvailable(in mode: AppMode) -> Bool { Tool.tools(for: mode).contains(self) }
 }
 
 public func pointerLabel(tool: Tool, fadeDelay: Double, shiftHeld: Bool) -> String {

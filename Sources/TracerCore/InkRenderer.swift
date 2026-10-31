@@ -7,7 +7,7 @@ public enum InkRenderer {
 
     public static func draw(_ strokes: [Stroke], in ctx: CGContext, highlighterBlend: CGBlendMode = .normal,
                             opacity: (Stroke) -> Double) {
-        for s in strokes {
+        for s in strokes.filter({ $0.tool == .redact }) + strokes.filter({ $0.tool != .redact }) {
             let o = opacity(s)
             guard o > 0, let first = s.points.first else { continue }
             ctx.saveGState()
@@ -42,6 +42,14 @@ public enum InkRenderer {
                                   width: abs(end.x - first.x), height: abs(end.y - first.y)))
             case .text:
                 drawText(s.text ?? "", at: first, size: s.style.width, color: color, in: ctx)
+            case .redact:
+                // Whole device pixels, opaque and unantialiased, so no original pixel blends into an edge.
+                let end = s.points.last!
+                let r = CGRect(x: min(first.x, end.x), y: min(first.y, end.y), width: abs(end.x - first.x), height: abs(end.y - first.y))
+                ctx.setAlpha(1)
+                ctx.setShouldAntialias(false)
+                ctx.setFillColor(CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1))
+                ctx.fill(ctx.convertToUserSpace(ctx.convertToDeviceSpace(r).integral))
             case .spotlight:
                 break
             }
@@ -50,6 +58,7 @@ public enum InkRenderer {
     }
 
     public static let minimumArrowLength = 2.0
+    public static let minimumRedactSide = 2.0
 
     // A pen path through the midpoints of successive samples, so fast strokes stay smooth.
     static func smoothPath(_ pts: [CGPoint]) -> CGPath {
@@ -96,6 +105,7 @@ public func inkBounds(of s: Stroke) -> CGRect {
     case .pen: return box(s.points, pad: w / 2 + 1)
     case .highlighter: return box(s.points, pad: w * 0.75 + 1)
     case .rectangle: return box([first, s.points.last!], pad: w / 2 + 1)
+    case .redact: return box([first, s.points.last!], pad: 1)
     case .arrow:
         let end = s.points.last!
         let (a, b) = arrowHead(from: first, to: end, width: w)
@@ -115,5 +125,15 @@ public func inkBounds(of s: Stroke) -> CGRect {
         }
         return box.insetBy(dx: -3, dy: -3)
     case .spotlight: return .null
+    }
+}
+
+// Arrows and redact boxes this small are dropped when the drag ends.
+public func isTooSmall(_ s: Stroke) -> Bool {
+    guard let a = s.points.first, let b = s.points.last else { return false }
+    switch s.tool {
+    case .arrow: return hypot(b.x - a.x, b.y - a.y) < InkRenderer.minimumArrowLength
+    case .redact: return min(abs(b.x - a.x), abs(b.y - a.y)) < InkRenderer.minimumRedactSide
+    default: return false
     }
 }
