@@ -1,6 +1,8 @@
 <div align="center">
 
-# ✍️ Tracer
+<img src="docs/images/icon.png" alt="Tracer icon" width="128">
+
+# Tracer
 
 **Draw on your Mac's screen to point things out, then screenshot what you marked up.**
 
@@ -127,6 +129,8 @@ scripts/release.sh --publish
 ```
 
 That builds `build/Tracer-<version>.dmg`, tags `v<version>` and uploads the DMG to a new GitHub release with generated notes. Without `--publish` it only builds the DMG. It stops if the app isn't signed with `Tracer Local Signing`, since a differently signed update would lose people's Screen Recording permission.
+
+The app icon is drawn in code by `scripts/icon.swift`. Run `swift scripts/icon.swift` after changing it to rewrite `Resources/AppIcon.icns`. It's drawn full bleed on purpose: macOS 26 and later apply their own rounded shape, and an icon that's already rounded gets shrunk into a grey tile.
 
 ## License
 
