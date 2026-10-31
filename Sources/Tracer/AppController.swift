@@ -7,7 +7,7 @@ final class AppController: NSObject {
     private(set) var session = Session()
     private let hotkeys = HotkeyCenter()
     let overlays = OverlayManager()
-    private let menuBar = MenuBarController()
+    let menuBar = MenuBarController()
     let dockState = DockState()
     lazy var dock = DockPanel(state: dockState)
     let text = TextEntryController()
@@ -31,6 +31,7 @@ final class AppController: NSObject {
     private(set) var frames: [CGDirectDisplayID: FrozenFrame] = [:]
     private var previousApp: NSRunningApplication?
     private var strokeOrder: [(view: InkView, id: UUID)] = []
+    private var redoStack: [(view: InkView, stroke: Stroke)] = []
     private(set) var tool: Tool = .pen
     private(set) var color = InkPalette.presets[0]
     private var width: Double?
@@ -97,6 +98,7 @@ final class AppController: NSObject {
         overlays.sync()
         let live = Set(overlays.inkViews.values.map(ObjectIdentifier.init))
         strokeOrder.removeAll { !live.contains(ObjectIdentifier($0.view)) }
+        redoStack.removeAll { !live.contains(ObjectIdentifier($0.view)) }
         if session.mode == .drawing {
             enterLiveChrome(true)
             let screen = dockDisplay.flatMap { overlays.screen(of: $0) } ?? screenUnderPointer
@@ -182,6 +184,7 @@ final class AppController: NSObject {
     private func configure(_ ink: InkView, _ capture: CaptureView) {
         ink.onStrokeEnded = { [weak self] v in
             if let id = v.model.strokes.last?.id { self?.strokeOrder.append((v, id)) }
+            self?.redoStack.removeAll()
         }
         ink.onPointerMoved = { [weak self] in self?.pointerMoved(in: $0) }
         ink.onTextClick = { [weak self] v, p in
@@ -264,10 +267,12 @@ final class AppController: NSObject {
             overlays.captureViews.values.forEach { $0.reset() }
             overlays.frozenViews.values.forEach { $0.frame_ = nil }
             frames = [:]
+            redoStack.removeAll()
             overlays.hide()
         case .clearInk, .clearAll:
             overlays.inkViews.values.forEach { $0.clear() }
             strokeOrder.removeAll()
+            redoStack.removeAll()
         case .setFadeMode(let mode):
             if mode == .frozen { overlays.inkViews.values.forEach { $0.model.prune(at: InkView.now) } }
             overlays.inkViews.values.forEach { $0.model.mode = mode }
@@ -289,8 +294,12 @@ final class AppController: NSObject {
         case .undo:
             // Entries for strokes that already faded away are skipped.
             while let (v, id) = strokeOrder.popLast() {
-                if v.removeStroke(id: id) { break }
+                if let s = v.takeStroke(id: id) { redoStack.append((v, s)); break }
             }
+        case .redo:
+            guard let (v, s) = redoStack.popLast() else { return }
+            v.restoreStroke(s)
+            strokeOrder.append((v, s.id))
         case .copySelection:
             guard let img = composedSelection() else { return }
             guard output.copy(img, format: format) else {
@@ -454,6 +463,7 @@ extension SessionKey {
         case .escape: "Esc"
         case .delete: "Delete"
         case .undo: "⌘Z"
+        case .redo: "⌘⇧Z"
         case .returnKey: "Return"
         case .copy: "⌘C"
         case .save: "⌘S"

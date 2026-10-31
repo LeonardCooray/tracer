@@ -84,6 +84,7 @@ private let exitEffects: [SessionEffect] = [.hideOverlays, .clearInk, .unregiste
     #expect(s.handle(.command(.selectTool(.arrow))) == [.selectTool(.arrow)])
     #expect(s.tool == .arrow)
     #expect(s.handle(.command(.undo)) == [.undo])
+    #expect(s.handle(.command(.redo)) == [.redo])
     #expect(s.handle(.command(.clearAll)) == [.clearAll])
 }
 

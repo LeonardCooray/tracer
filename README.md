@@ -64,7 +64,8 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 | 1–6 | Pen, highlighter, arrow, rectangle, spotlight, text |
 | Shift | Keep the current stroke instead of letting it fade |
 | ⌘Z | Undo the last stroke |
-| Delete | Clear everything |
+| ⌘⇧Z | Redo (a redone stroke starts its fade again) |
+| Delete | Clear everything (this can't be undone) |
 | Esc | Stop drawing |
 
 **While capturing**
@@ -73,6 +74,7 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 |---|---|
 | Return or ⌘C | Copy the selection |
 | ⌘S | Save the selection to your folder |
+| ⌘Z / ⌘⇧Z | Undo / redo |
 | Esc | Cancel the capture |
 
 ## Settings
@@ -85,6 +87,8 @@ Open **Settings…** from the menu bar icon to change:
 - Image format, PNG or JPEG
 - Whether to show the cursor ring when you're not drawing
 - Launch at login
+
+The menu also shows which version you're running. **Check for Updates…** opens the latest release in your browser; Tracer itself never goes online.
 
 ## Permissions
 

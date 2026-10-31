@@ -17,6 +17,7 @@ public enum SessionEffect: Equatable, Sendable {
     case unregisterSessionKeys
     case selectTool(Tool)
     case undo
+    case redo
     case clearAll
     case copySelection
     case saveSelection
@@ -86,6 +87,7 @@ public struct Session: Sendable {
             tool = t
             return [.selectTool(t)]
         case .undo: return [.undo]
+        case .redo: return [.redo]
         case .clearAll: return [.clearAll]
         case .copy: return mode == .capturing ? [.copySelection] : []
         case .save: return mode == .capturing ? [.saveSelection] : []
