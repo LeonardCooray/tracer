@@ -16,6 +16,18 @@ Tracer lives in your menu bar. Press a hotkey and draw straight over whatever's 
 
 A second hotkey freezes the screen so you can drag out a region and copy or save it at full Retina resolution, ink included. Nothing leaves your Mac.
 
+## Install
+
+Tracer needs macOS 27.
+
+1. Download the latest `Tracer-<version>.dmg` from [Releases](https://github.com/LeonardCooray/tracer/releases/latest).
+2. Open it and drag **Tracer** into **Applications**.
+3. Open Tracer from Applications.
+
+Tracer is signed with a personal certificate rather than an Apple Developer ID, so macOS blocks the first launch. Click **Done** on that warning, then go to **System Settings › Privacy & Security**, scroll down to **Security** and click **Open Anyway** next to Tracer. You only need to do this once.
+
+The first screenshot asks for **Screen Recording** permission. Updates are signed with the same certificate, so the permission carries over when you install a new version.
+
 ## Features
 
 **Draw live over the screen**
@@ -105,6 +117,16 @@ build/Tracer.app/Contents/MacOS/Tracer --self-test live
 ```
 
 The other suites are `tools`, `capture`, `settings` and `displays`.
+
+## Releasing
+
+Bump `CFBundleShortVersionString` in `Resources/Info.plist`, merge to `main`, then from an up-to-date `main`:
+
+```bash
+scripts/release.sh --publish
+```
+
+That builds `build/Tracer-<version>.dmg`, tags `v<version>` and uploads the DMG to a new GitHub release with generated notes. Without `--publish` it only builds the DMG. It stops if the app isn't signed with `Tracer Local Signing`, since a differently signed update would lose people's Screen Recording permission.
 
 ## License
 
