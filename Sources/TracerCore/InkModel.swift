@@ -31,6 +31,11 @@ public final class InkModel {
         strokes[i].points.append(point)
     }
 
+    public func setActiveColor(_ color: RGBA) {
+        guard let i = activeIndex else { return }
+        strokes[i].style.color = color
+    }
+
     public func end(at time: TimeInterval) {
         guard let i = activeIndex else { return }
         strokes[i].finishedAt = time

@@ -127,3 +127,13 @@ private func finishedStroke(_ m: InkModel, at time: Double, pinned: Bool = false
     m.end(at: 1)
     #expect(!m.isDrawing)
 }
+
+@Test func setActiveColorRecolours() {
+    let m = InkModel(mode: .frozen)
+    m.begin(tool: .redact, style: StrokeStyle(color: RGBA(hex: 0xFF0000), width: 0), at: .zero, pinned: false)
+    m.setActiveColor(RGBA(hex: 0x123456))
+    m.end(at: 0)
+    #expect(m.strokes[0].style.color == RGBA(hex: 0x123456))
+    m.setActiveColor(RGBA(hex: 0xFFFFFF))
+    #expect(m.strokes[0].style.color == RGBA(hex: 0x123456))
+}
