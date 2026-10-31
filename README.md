@@ -8,6 +8,8 @@
 ![Swift](https://img.shields.io/badge/Swift-native-F05138?logo=swift&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
+<img src="docs/images/drawing.png" alt="Tracer drawing over a dashboard: a circled chart bar, an arrow with a note, a highlighted table row, and the tool dock on the right edge" width="800">
+
 </div>
 
 Tracer lives in your menu bar. Press a hotkey and draw straight over whatever's running, with ink that fades on its own. Press it again and the mouse goes back to your apps.
@@ -23,12 +25,16 @@ A second hotkey freezes the screen so you can drag out a region and copy or save
 - A slim tool dock slides in from the screen edge and gets out of the way when you're not using it
 - Works across multiple displays
 
+<img src="docs/images/spotlight.png" alt="The spotlight tool dimming the screen around one number" width="800">
+
 **Capture a region**
 
 - Freeze the screen, drag a selection, then copy or save
 - Full Retina size, as PNG or JPEG
 - Works mid-drawing, so your annotations land in the shot
 - The spotlight and cursor ring are for pointing live and never appear in screenshots
+
+<img src="docs/images/capture.png" alt="Capture mode: a selected chart with an arrow and circle drawn on it, and the dock snapped to the selection with Copy and Save" width="800">
 
 ## Keys
 
