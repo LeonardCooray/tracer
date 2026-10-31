@@ -4,36 +4,16 @@ import AppKit
 let size = 1024.0
 let ink = CGColor(srgbRed: 1, green: 0.271, blue: 0.227, alpha: 1)
 
-func squircle(_ r: CGRect, n: Double = 5) -> CGPath {
-    let p = CGMutablePath()
-    for i in 0...720 {
-        let t = Double(i) / 720 * 2 * .pi
-        let c = cos(t), s = sin(t)
-        let x = r.midX + r.width / 2 * copysign(pow(abs(c), 2 / n), c)
-        let y = r.midY + r.height / 2 * copysign(pow(abs(s), 2 / n), s)
-        i == 0 ? p.move(to: CGPoint(x: x, y: y)) : p.addLine(to: CGPoint(x: x, y: y))
-    }
-    p.closeSubpath()
-    return p
-}
-
 func render() -> CGImage {
     let ctx = CGContext(data: nil, width: Int(size), height: Int(size), bitsPerComponent: 8, bytesPerRow: 0,
                         space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     let rgb = CGColorSpace(name: CGColorSpace.sRGB)!
+    // Full bleed: macOS 26+ masks it to the system shape; a pre-shaped icon gets boxed in a grey tile instead.
     let tile = CGRect(x: 100, y: 100, width: 824, height: 824)
-    let shape = squircle(tile)
+    ctx.scaleBy(x: size / tile.width, y: size / tile.height)
+    ctx.translateBy(x: -tile.minX, y: -tile.minY)
 
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: CGColor(gray: 0, alpha: 0.35))
-    ctx.addPath(shape)
-    ctx.setFillColor(CGColor(srgbRed: 0.08, green: 0.09, blue: 0.23, alpha: 1))
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    ctx.saveGState()
-    ctx.addPath(shape)
-    ctx.clip()
     let bg = CGGradient(colorsSpace: rgb, colors: [CGColor(srgbRed: 0.20, green: 0.22, blue: 0.52, alpha: 1),
                                                    CGColor(srgbRed: 0.07, green: 0.08, blue: 0.22, alpha: 1)] as CFArray,
                         locations: [0, 1])!
