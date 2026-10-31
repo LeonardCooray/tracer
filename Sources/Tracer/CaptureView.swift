@@ -30,6 +30,9 @@ final class CaptureView: NSView {
     private(set) var selection: CGRect? { didSet { needsDisplay = true } }
     var armed = false
     var onSelectionChanged: ((CaptureView) -> Void)?
+    var acceptsInput = true
+    // Returns true when the click was used up (for example, to finish typing).
+    var onPointerDown: (() -> Bool)?
 
     private enum Drag { case none, creating(CGPoint), moving(CGPoint, CGRect), resizing(CGPoint), drawing }
     private var drag = Drag.none
@@ -60,6 +63,8 @@ final class CaptureView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        drag = .none
+        guard acceptsInput, onPointerDown?() != true else { return }
         let p = convert(event.locationInWindow, from: nil)
         if let s = selection, let i = corners(of: s).firstIndex(where: { hypot($0.x - p.x, $0.y - p.y) <= 10 }) {
             drag = .resizing(corners(of: s)[3 - i])

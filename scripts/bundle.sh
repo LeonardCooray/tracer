@@ -18,7 +18,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Tracer"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 
-if security find-identity -v -p codesigning | grep -q "\"$IDENTITY\""; then
+# Not -v: a self-signed identity is "not trusted" yet still signs fine.
+if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
     codesign --force --options runtime --sign "$IDENTITY" "$APP"
 else
     echo "warning: signing identity \"$IDENTITY\" not found; ad-hoc signing (Screen Recording will be re-asked after each build). See docs/signing.md." >&2

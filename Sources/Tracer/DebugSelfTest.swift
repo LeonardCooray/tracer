@@ -1,10 +1,21 @@
 #if DEBUG
 import AppKit
+import ServiceManagement
 import TracerCore
 
 // Debug-only smoke test: `Tracer --self-test live` drives the real overlays and prints PASS/FAIL lines.
 @MainActor
 enum DebugSelfTest {
+    static var isRequested: Bool { CommandLine.arguments.contains("--self-test") }
+
+    // Self-tests never touch the real preferences.
+    static func isolatedDefaults() -> UserDefaults {
+        let name = "com.leonardcooray.tracer.selftest"
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        return d
+    }
+
     static func runIfRequested(_ c: AppController) {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--self-test"), i + 1 < args.count else { return }
@@ -16,6 +27,12 @@ enum DebugSelfTest {
             case "settings": await settings(c)
             case "displays": await displays(c)
             case "review": await review(c)
+            case "text": await textEdits(c)
+            case "capture2": await capture2(c)
+            case "displays2": await displays2(c)
+            case "keys": await keys(c)
+            case "redraw": await redraw(c)
+            case "regress": await regress(c)
             default: print("FAIL unknown self-test")
             }
             exit(0)
@@ -109,7 +126,8 @@ enum DebugSelfTest {
         check(!c.session.isEditingText, "commit ends editing")
         check(v.model.strokes.last?.text == "Look here 123", "typed text stored (digits typed, not tools)")
         check(painted(v, at: NSPoint(x: 310, y: 205)), "text paints")
-        check(v.window?.isKeyWindow != true || !(v.window as! OverlayPanel).allowsKey, "overlay gives up key status after text")
+        await pause(0.4)
+        check(v.window?.isKeyWindow != true, "overlay gives up key status after text")
 
         v.onTextClick?(v, NSPoint(x: 300, y: 600))
         c.send(.escape)
@@ -231,7 +249,7 @@ enum DebugSelfTest {
         s.format = .jpeg
         c.update(s)
         check(c.hotkeyWarnings.isEmpty, "changed hotkey registers without relaunch \(c.hotkeyWarnings)")
-        check(SettingsStore(defaults: .standard).load() == c.settings, "settings persisted")
+        check(c.store.load() == c.settings, "settings persisted")
         check(c.format == .jpeg, "format applied")
         c.send(.penHotkey)
         check(c.overlays.inkViews.values.allSatisfy { $0.model.mode == .live(delay: 5) }, "fade delay applied to new drawing")
@@ -285,6 +303,8 @@ enum DebugSelfTest {
         c.requestCapture()
         await pause(0.4)
         c.screensChanged()
+        check(c.session.mode == .capturing, "a no-op screen notification keeps the capture")
+        c.screensChanged(force: true)
         check(c.session.mode == .idle, "display change cancels an in-progress capture")
         check(c.overlays.panels.values.allSatisfy { !$0.isVisible }, "overlays hidden after cancelled capture")
     }
@@ -302,6 +322,7 @@ enum DebugSelfTest {
         }
 
         // Permission alert while drawing must be reachable: no interactive overlay above it.
+        c.markScreenRecordingPromptShown()
         c.capturer = DeniedCapturer()
         c.send(.penHotkey)
         c.requestCapture()
@@ -377,6 +398,297 @@ enum DebugSelfTest {
         check(c.hotkeyWarnings.first?.contains("couldn't be registered") == true, "failed hotkey says it couldn't be registered (\(c.hotkeyWarnings))")
         squatter.unregister(id: 77)
         c.settingsModel.onRecording(false)
+    }
+
+    static func textEdits(_ c: AppController) async {
+        c.send(.penHotkey)
+        await pause(0.3)
+        guard let v = c.overlays.inkViews.values.first else { return }
+        func type(_ s: String) { v.subviews.compactMap { $0 as? NSTextField }.first?.stringValue = s }
+
+        c.send(.command(.selectTool(.text)))
+        v.onTextClick?(v, NSPoint(x: 300, y: 300))
+        type("first")
+        v.onTextClick?(v, NSPoint(x: 600, y: 600))
+        check(v.model.strokes.last?.text == "first", "click elsewhere commits the text")
+        check(!c.text.isEditing, "click elsewhere doesn't open another box")
+        check(c.sessionKeyCount > 0, "session keys back after the click-away commit")
+
+        v.onTextClick?(v, NSPoint(x: 300, y: 400))
+        type("before capture")
+        c.capturer = FakeCapturer()
+        c.requestCapture()
+        await pause(0.4)
+        check(v.model.strokes.contains { $0.text == "before capture" }, "capture hotkey while typing keeps the text")
+        check(!c.text.isEditing && !c.session.isEditingText, "capture hotkey while typing closes the box")
+        check(c.sessionKeyCount > 0, "capture keys registered after the box closes")
+
+        c.send(.command(.selectTool(.text)))
+        if let cv = c.overlays.captureViews.values.first, let w = cv.window {
+            cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+            cv.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 400, y: 400), in: w))
+        }
+        v.onTextClick?(v, NSPoint(x: 200, y: 200))
+        check(c.text.isEditing, "typing in capture")
+        c.screensChanged(force: true)
+        check(!c.text.isEditing && c.session.mode == .idle, "display change mid-typing closes the box and the capture")
+        c.requestCapture()
+        await pause(0.4)
+        check(c.sessionKeyCount > 0, "next capture still has its keys")
+        c.send(.escape)
+    }
+
+    final class CountingDenied: ScreenCapturing {
+        var requests = 0
+        var hasPermission: Bool { false }
+        func requestPermission() { requests += 1 }
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] { [:] }
+    }
+
+    struct Boom: Error {}
+
+    final class FailingCapturer: ScreenCapturing {
+        var hasPermission: Bool { true }
+        func requestPermission() {}
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] { throw Boom() }
+    }
+
+    final class SlowCapturer: ScreenCapturing {
+        let delay: Double, scale: Double
+        init(delay: Double, scale: Double) { self.delay = delay; self.scale = scale }
+        var hasPermission: Bool { true }
+        func requestPermission() {}
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] {
+            try await Task.sleep(for: .seconds(delay))
+            var out = try await FakeCapturer().captureAll()
+            for (k, f) in out { out[k] = FrozenFrame(image: f.image, scale: scale) }
+            return out
+        }
+    }
+
+    static func capture2(_ c: AppController) async {
+        var alerts: [String] = []
+        c.presentAlert = { t, _, _ in alerts.append(t) }
+        c.resetScreenRecordingPrompt()
+
+        let denied = CountingDenied()
+        c.capturer = denied
+        c.requestCapture()
+        check(denied.requests == 1 && alerts.isEmpty, "first capture shows only the system prompt (\(alerts))")
+        c.requestCapture()
+        check(alerts.count == 1, "later captures show Tracer's alert")
+
+        alerts.removeAll()
+        c.capturer = FailingCapturer()
+        c.requestCapture()
+        await pause(0.3)
+        check(alerts.first == "Couldn't capture the screen", "a capture error isn't blamed on permission (\(alerts))")
+        check(c.session.mode == .idle, "failed capture returns to idle")
+
+        c.capturer = SlowCapturer(delay: 0.6, scale: 7)
+        c.requestCapture()
+        await pause(0.1)
+        if let v = c.overlays.inkViews.values.first, let cv = c.overlays.captureViews.values.first, let w = v.window {
+            v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+            v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 200, y: 100), in: w))
+            cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+            cv.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 300), in: w))
+            check(v.model.strokes.isEmpty && cv.selection == nil, "clicks before frames arrive draw and select nothing")
+        }
+        check(c.overlays.panels.values.allSatisfy { !$0.ignoresMouseEvents }, "overlay still blocks clicks to other apps while loading")
+        c.send(.escape)
+        c.capturer = SlowCapturer(delay: 0.1, scale: 2)
+        c.requestCapture()
+        await pause(1.0)
+        check(c.frames.values.allSatisfy { $0.scale == 2 }, "a stale capture can't replace the newer one")
+        check(c.overlays.panels.values.allSatisfy { !$0.ignoresMouseEvents }, "overlay takes clicks once frames arrive")
+        c.send(.escape)
+    }
+
+    static func displays2(_ c: AppController) async {
+        let original = c.settings
+        defer { c.update(original) }
+        var s = original
+        s.fadeDelay = 5
+        c.update(s)
+        c.send(.penHotkey)
+        await pause(0.3)
+        c.overlays.forgetPanels()
+        c.screensChanged(force: true)
+        check(!c.overlays.inkViews.isEmpty && c.overlays.inkViews.values.allSatisfy { $0.model.mode == .live(delay: 5) },
+              "overlays added mid-drawing use the fade setting")
+
+        guard let screen = NSScreen.screens.first else { return }
+        c.dock.setFrame(c.dock.frame.offsetBy(dx: -5000, dy: 0), display: false)
+        c.screensChanged(force: true)
+        await pause(0.4)
+        check(screen.visibleFrame.contains(c.dock.frame), "dock moves back on screen after a display change (\(c.dock.frame))")
+
+        guard let v = c.overlays.inkViews.values.first else { return }
+        c.send(.command(.selectTool(.spotlight)))
+        v.setPointer(nil)
+        check((pixel(v, at: NSPoint(x: 100, y: 100))?.alphaComponent ?? 0) > 0.4, "spotlight dims displays the pointer isn't on")
+        c.send(.command(.selectTool(.pen)))
+        c.send(.penHotkey)
+
+        c.dock.slideIn(onRightEdgeOf: screen)
+        c.dock.slideOut()
+        c.dock.slideIn(onRightEdgeOf: screen)
+        await pause(0.5)
+        check(c.dock.isVisible, "a quick off/on leaves the dock showing")
+        c.dock.orderOut(nil)
+    }
+
+    static func keys(_ c: AppController) async {
+        c.send(.penHotkey)
+        await pause(0.3)
+        guard let v = c.overlays.inkViews.values.first, let w = v.window else { return }
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 100), in: w))
+        c.send(.command(.selectTool(.spotlight)))
+        check(!v.model.isDrawing && v.model.strokes.last?.finishedAt != nil, "switching tool mid-drag finishes the stroke")
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "undo removes the stroke finished by the tool switch")
+        c.send(.command(.selectTool(.pen)))
+        c.send(.penHotkey)
+
+        let squatter = HotkeyCenter()
+        _ = squatter.register(Hotkey(keyCode: KeyCode.one, modifiers: 0), id: 88, exclusive: true) {}
+        c.send(.penHotkey)
+        check(c.sessionKeyWarnings.contains { $0.contains("1") }, "session keys that can't register are reported (\(c.sessionKeyWarnings))")
+        c.send(.penHotkey)
+        squatter.unregister(id: 88)
+        c.send(.penHotkey)
+        check(c.sessionKeyWarnings.isEmpty, "warning clears once the key is free")
+        c.send(.penHotkey)
+    }
+
+    static func redraw(_ c: AppController) async {
+        c.send(.penHotkey)
+        await pause(0.3)
+        guard let v = c.overlays.inkViews.values.first, let w = v.window else { return }
+        let full = v.bounds.width * v.bounds.height
+        func share() -> CGFloat {
+            let f = v.largestInvalidation / full
+            return f.isFinite ? min(f, 1) : 1
+        }
+        func fraction(_ body: () -> Void) -> CGFloat {
+            v.largestInvalidation = 0
+            body()
+            return share()
+        }
+        let move = fraction { v.mouseMoved(with: mouse(.mouseMoved, NSPoint(x: 400, y: 400), in: w)) }
+        check(move < 0.05, "pointer move redraws only around the pointer (\(Int(move * 100))% of screen)")
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 400, y: 400), in: w))
+        let dragF = fraction { v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 420, y: 410), in: w)) }
+        check(dragF < 0.05, "drawing redraws only the new ink (\(Int(dragF * 100))% of screen)")
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 420, y: 410), in: w))
+        await pause(3.1)
+        v.largestInvalidation = 0
+        await pause(0.3)
+        check(share() < 0.05, "fading redraws only the fading ink (\(Int(share() * 100))%)")
+        c.send(.penHotkey)
+    }
+
+    final class FakeLogin: LoginService {
+        var status: SMAppService.Status
+        var registers = 0, unregisters = 0
+        init(_ s: SMAppService.Status) { status = s }
+        func register() throws { registers += 1; status = .enabled }
+        func unregister() throws { unregisters += 1; status = .notRegistered }
+    }
+
+    static func regress(_ c: AppController) async {
+        // Login toggle acts on the real status, not the stored copy.
+        var s = c.settings
+        s.launchAtLogin = true
+        let login = FakeLogin(.notRegistered)
+        c.loginService = FakeLogin(.enabled)
+        c.update(s)
+        c.loginService = login
+        c.settingsWindow.show()
+        await pause(0.2)
+        check(c.settingsModel.loginStatus == .notRegistered, "toggle shows the real status")
+        c.settingsModel.onLoginToggle(true)
+        check(login.registers == 1, "turning the toggle on registers even if the stored value was already on")
+        login.status = .requiresApproval
+        c.settingsModel.onLoginToggle(false)
+        check(login.unregisters == 1, "turning it off unregisters a login item awaiting approval")
+        c.settingsWindow.window?.close()
+
+        // Idle cursor ring never shows the spotlight.
+        var ring = c.settings
+        ring.cursorRingAlwaysOn = true
+        c.update(ring)
+        c.send(.penHotkey)
+        c.send(.command(.selectTool(.spotlight)))
+        c.send(.penHotkey)
+        await pause(0.2)
+        if let v = c.overlays.inkViews.values.first {
+            v.setPointer(nil)
+            check((pixel(v, at: NSPoint(x: 100, y: 100))?.alphaComponent ?? 0) < 0.1, "idle displays aren't dimmed by a leftover spotlight")
+            v.setPointer(NSPoint(x: 500, y: 500))
+            check((pixel(v, at: NSPoint(x: 100, y: 100))?.alphaComponent ?? 0) < 0.1, "idle display under the pointer isn't dimmed either")
+        }
+        ring.cursorRingAlwaysOn = false
+        c.update(ring)
+        c.send(.penHotkey)
+        c.send(.command(.selectTool(.pen)))
+
+        guard let v = c.overlays.inkViews.values.first, let w = v.window else { return }
+        let full = v.bounds.width * v.bounds.height
+        // A big pen stroke only redraws its newest segment.
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+        for i in 1...40 {
+            let a = Double(i) / 40 * 2 * .pi
+            v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 700 + 500 * cos(a), y: 500 + 400 * sin(a)), in: w))
+        }
+        v.largestInvalidation = 0
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 1200, y: 510), in: w))
+        let f = v.largestInvalidation / full
+        check(f.isFinite && f < 0.05, "a screen-sized stroke redraws only its tail (\(f.isFinite ? Int(f * 100) : 100)%)")
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 1200, y: 510), in: w))
+        c.send(.command(.clearAll))
+
+        // Tool switch mid-drag doesn't double-count the stroke.
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 100), in: w))
+        c.send(.command(.selectTool(.arrow)))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 100), in: w))
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 300), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 300), in: w))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 300), in: w))
+        c.send(.command(.undo))
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "two undos remove both strokes after a mid-drag tool switch")
+
+        // An arrow click leaves nothing behind for undo to trip on.
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 300), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 300), in: w))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 300), in: w))
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 500, y: 500), in: w))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 500, y: 500), in: w))
+        check(v.model.strokes.count == 1, "a click with the arrow adds no stroke")
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "the next undo removes the real arrow")
+        c.send(.penHotkey)
+
+        // Clicking outside the selection while typing commits the text.
+        c.capturer = FakeCapturer()
+        c.requestCapture()
+        await pause(0.4)
+        guard let cv = c.overlays.captureViews.values.first, let cw = cv.window else { return }
+        cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 300, y: 300), in: cw))
+        cv.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 700, y: 600), in: cw))
+        cv.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 700, y: 600), in: cw))
+        c.send(.command(.selectTool(.text)))
+        v.onTextClick?(v, NSPoint(x: 400, y: 400))
+        v.subviews.compactMap { $0 as? NSTextField }.first?.stringValue = "note"
+        cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 100, y: 100), in: cw))
+        cv.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 100, y: 100), in: cw))
+        check(!c.text.isEditing && v.model.strokes.contains { $0.text == "note" }, "clicking outside the selection commits the text")
+        check(cv.selection != nil, "that click doesn't throw away the selection")
+        c.send(.escape)
     }
 
     static func live(_ c: AppController) async {

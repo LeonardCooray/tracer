@@ -87,3 +87,54 @@ private func stroke(_ tool: Tool, _ pts: [CGPoint], color: RGBA = RGBA(hex: 0xFF
     InkRenderer.draw([s], in: c.ctx) { _ in 1 }
     #expect(c.anyPainted)
 }
+
+@Test func arrowClickPaintsNothing() {
+    let c = Canvas()
+    InkRenderer.draw([stroke(.arrow, [CGPoint(x: 50, y: 50)])], in: c.ctx) { _ in 1 }
+    #expect(!c.anyPainted)
+    let c2 = Canvas()
+    InkRenderer.draw([stroke(.arrow, [CGPoint(x: 50, y: 50), CGPoint(x: 51, y: 50)])], in: c2.ctx) { _ in 1 }
+    #expect(!c2.anyPainted)
+}
+
+@Test func multiplyHighlighterKeepsDarkTextDark() {
+    let c = Canvas(background: RGBA(hex: 0x000000))
+    InkRenderer.draw([stroke(.highlighter, [CGPoint(x: 10, y: 50), CGPoint(x: 90, y: 50)], color: RGBA(hex: 0xFFFF00), width: 18)],
+                     in: c.ctx, highlighterBlend: .multiply) { _ in 1 }
+    let p = c.pixel(50, 50)
+    #expect(p.r < 30 && p.g < 30)
+}
+
+@Test func strokeBoundsContainEveryPaintedPixel() {
+    let strokes = [
+        stroke(.pen, [CGPoint(x: 20, y: 20), CGPoint(x: 70, y: 40)], width: 8),
+        stroke(.arrow, [CGPoint(x: 20, y: 70), CGPoint(x: 80, y: 70)]),
+        stroke(.rectangle, [CGPoint(x: 30, y: 30), CGPoint(x: 60, y: 60)]),
+        stroke(.highlighter, [CGPoint(x: 15, y: 50), CGPoint(x: 85, y: 50)], width: 18),
+        { var s = stroke(.text, [CGPoint(x: 10, y: 30)], width: 18); s.text = "Hey"; return s }(),
+    ]
+    for s in strokes {
+        let c = Canvas()
+        InkRenderer.draw([s], in: c.ctx) { _ in 1 }
+        let b = inkBounds(of: s)
+        var outside = 0
+        for y in 0..<c.size { for x in 0..<c.size where c.pixel(x, y).a > 0 {
+            if !b.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) { outside += 1 }
+        } }
+        #expect(outside == 0, "\(s.tool) painted \(outside) px outside \(b)")
+        #expect(b.width > 0 && b.height > 0)
+    }
+}
+
+@Test func textBoundsCoverStackedMarks() {
+    var s = stroke(.text, [CGPoint(x: 10, y: 30)], width: 18)
+    s.text = "e\u{301}\u{301}\u{301}\u{301}\u{301}"
+    let c = Canvas()
+    InkRenderer.draw([s], in: c.ctx) { _ in 1 }
+    let b = inkBounds(of: s)
+    var outside = 0
+    for y in 0..<c.size { for x in 0..<c.size where c.pixel(x, y).a > 0 {
+        if !b.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) { outside += 1 }
+    } }
+    #expect(outside == 0, "\(outside) px outside \(b)")
+}

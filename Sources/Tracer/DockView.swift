@@ -114,12 +114,15 @@ final class DockPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
 
+    private var slideToken = 0
+
     var fittingSize: NSSize {
         host.layoutSubtreeIfNeeded()
         return host.fittingSize
     }
 
     func slideIn(onRightEdgeOf screen: NSScreen) {
+        slideToken += 1
         let size = fittingSize
         let f = screen.visibleFrame
         let target = NSRect(x: f.maxX - 10 - size.width, y: f.midY - size.height / 2, width: size.width, height: size.height)
@@ -132,18 +135,24 @@ final class DockPanel: NSPanel {
     }
 
     func place(at origin: NSPoint) {
+        slideToken += 1
         setFrame(NSRect(origin: origin, size: fittingSize), display: true)
         orderFrontRegardless()
     }
 
     func slideOut() {
         guard isVisible else { return }
+        slideToken += 1
+        let token = slideToken
         let f = frame
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
             animator().setFrame(f.offsetBy(dx: f.width + 20, dy: 0), display: true)
         }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated { self?.orderOut(nil) }
+            MainActor.assumeIsolated {
+                guard let self, self.slideToken == token else { return }
+                self.orderOut(nil)
+            }
         })
     }
 }

@@ -50,3 +50,10 @@ public struct Hotkey: Codable, Equatable, Hashable, Sendable {
             && [KeyCode.three, KeyCode.four, KeyCode.five, KeyCode.six].contains(keyCode)
     }
 }
+
+public func hotkeyProblem(_ k: Hotkey, other: Hotkey, otherName: String) -> String? {
+    if k.isReservedBySystem { return "\(k.displayString) is used by macOS" }
+    if !k.isUsableGlobally { return "Add ⌃, ⌥ or ⌘" }
+    if k == other { return "Already used for \(otherName)" }
+    return nil
+}

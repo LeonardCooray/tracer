@@ -41,6 +41,16 @@ public final class InkModel {
         strokes.append(Stroke(tool: .text, points: [point], style: style, text: text, finishedAt: time))
     }
 
+    public var isDrawing: Bool { activeIndex != nil }
+
+    @discardableResult
+    public func remove(id: UUID) -> Bool {
+        guard let i = strokes.firstIndex(where: { $0.id == id }) else { return false }
+        if let a = activeIndex { activeIndex = a == i ? nil : (a > i ? a - 1 : a) }
+        strokes.remove(at: i)
+        return true
+    }
+
     public func undo() {
         guard !strokes.isEmpty else { return }
         strokes.removeLast()
