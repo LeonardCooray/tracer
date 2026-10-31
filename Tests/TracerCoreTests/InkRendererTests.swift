@@ -138,3 +138,36 @@ private func stroke(_ tool: Tool, _ pts: [CGPoint], color: RGBA = RGBA(hex: 0xFF
     } }
     #expect(outside == 0, "\(outside) px outside \(b)")
 }
+
+@Test func redactFillsOpaque() {
+    let c = Canvas(background: RGBA(hex: 0x000000))
+    let s = Stroke(tool: .redact, points: [CGPoint(x: 10, y: 10), CGPoint(x: 60, y: 40)],
+                   style: StrokeStyle(color: RGBA(hex: 0x808080), width: 0), finishedAt: 0)
+    InkRenderer.draw([s], in: c.ctx) { _ in 1 }
+    #expect(c.pixel(35, 25) == (128, 128, 128, 255))
+    #expect(c.pixel(5, 5) == (0, 0, 0, 255))
+}
+
+@Test func redactDrawsUnderOtherInk() {
+    let c = Canvas()
+    let arrow = Stroke(tool: .arrow, points: [CGPoint(x: 0, y: 50), CGPoint(x: 99, y: 50)],
+                       style: StrokeStyle(color: RGBA(hex: 0xFF0000), width: 6), finishedAt: 0)
+    let box = Stroke(tool: .redact, points: [CGPoint(x: 20, y: 20), CGPoint(x: 80, y: 80)],
+                     style: StrokeStyle(color: RGBA(hex: 0xFFFFFF), width: 0), finishedAt: 1)
+    InkRenderer.draw([arrow, box], in: c.ctx) { _ in 1 }
+    #expect(c.pixel(50, 50).r > 200 && c.pixel(50, 50).g < 80)
+}
+
+@Test func tooSmallStrokes() {
+    let st = StrokeStyle(color: RGBA(hex: 0), width: 0)
+    #expect(isTooSmall(Stroke(tool: .redact, points: [CGPoint(x: 0, y: 0), CGPoint(x: 50, y: 1.5)], style: st)))
+    #expect(!isTooSmall(Stroke(tool: .redact, points: [CGPoint(x: 0, y: 0), CGPoint(x: 2, y: 2)], style: st)))
+    #expect(isTooSmall(Stroke(tool: .arrow, points: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1)], style: st)))
+    #expect(!isTooSmall(Stroke(tool: .pen, points: [CGPoint(x: 0, y: 0)], style: st)))
+}
+
+@Test func redactBounds() {
+    let s = Stroke(tool: .redact, points: [CGPoint(x: 60, y: 40), CGPoint(x: 10, y: 10)],
+                   style: StrokeStyle(color: RGBA(hex: 0), width: 0))
+    #expect(inkBounds(of: s) == CGRect(x: 9, y: 9, width: 52, height: 32))
+}

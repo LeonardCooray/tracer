@@ -14,7 +14,7 @@ import Testing
 }
 
 @Test func displayNames() {
-    #expect(Tool.allCases.map(\.displayName) == ["Pen", "Highlighter", "Arrow", "Rectangle", "Spotlight", "Text"])
+    #expect(Tool.allCases.map(\.displayName) == ["Pen", "Highlighter", "Arrow", "Rectangle", "Spotlight", "Text", "Redact"])
 }
 
 @Test func pointerLabelShowsToolAndFade() {

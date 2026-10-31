@@ -23,6 +23,7 @@ extension Tool {
         case .rectangle: "rectangle"
         case .spotlight: "light.max"
         case .text: "textformat"
+        case .redact: "rectangle.fill"
         }
     }
 }
