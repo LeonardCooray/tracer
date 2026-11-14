@@ -101,6 +101,7 @@ private func drawing() -> Session {
     #expect(steppedWidth(30, for: .pen, thicker: false) == 24)
     #expect(steppedWidth(4, for: .spotlight, thicker: true) == nil)
     #expect(steppedWidth(4, for: .redact, thicker: false) == nil)
+    #expect(steppedWidth(3.5, for: .ellipse, thicker: true) == 4)
 }
 
 @Test func defaultWidthsSitInsideTheirRange() {

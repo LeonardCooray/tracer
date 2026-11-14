@@ -42,7 +42,7 @@ public func defaultWidth(for tool: Tool) -> Double {
 // Sizes [ and ] step through; nil for tools without a width. Text sizes are font points.
 public func widthSteps(for tool: Tool) -> [Double]? {
     switch tool {
-    case .pen, .arrow, .rectangle: [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24]
+    case .pen, .arrow, .rectangle, .ellipse: [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24]
     case .highlighter: [8, 12, 18, 24, 32, 40, 48]
     case .text: [10, 12, 14, 18, 24, 32, 40, 48, 64, 72]
     case .spotlight, .redact: nil

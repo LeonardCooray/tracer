@@ -168,7 +168,7 @@ enum DebugSelfTest {
     static func toolKeys(_ c: AppController, _ v: InkView) async {
         c.send(.penHotkey)
         c.send(.penHotkey)
-        check(c.sessionKeyCount == 14 && c.sessionKeyWarnings.isEmpty, "Tab, [ and ] registered with the drawing keys (\(c.sessionKeyCount))")
+        check(c.sessionKeyCount == 15 && c.sessionKeyWarnings.isEmpty, "Tab, [ and ] registered with the drawing keys (\(c.sessionKeyCount))")
         c.send(.command(.selectTool(.arrow)))
         c.send(.command(.selectTool(.pen)))
         c.send(.command(command(for: .tab, mode: .drawing, isEditingText: false)!))
@@ -286,7 +286,7 @@ enum DebugSelfTest {
         dragCV(NSPoint(x: 400, y: 400), NSPoint(x: 600, y: 500))
         check(v.model.strokes.count == 1 && v.model.strokes[0].tool == .arrow, "with a tool picked, drag inside draws")
         check(v.model.opacity(of: v.model.strokes[0], at: InkView.now + 100) == 1, "capture ink never fades")
-        check(c.sessionKeyCount == 17, "capture registers Tab, [ and ] too (\(c.sessionKeyCount))")
+        check(c.sessionKeyCount == 18, "capture registers Tab, [ and ] too (\(c.sessionKeyCount))")
         c.send(.command(.toggleTool))
         check(c.tool == .pen, "Tab in capture goes back to the pen")
         c.send(.command(.toggleTool))
