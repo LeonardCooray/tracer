@@ -397,6 +397,8 @@ final class AppController: NSObject {
     }
 
     private func composedSelection() -> CGImage? {
+        // A box still being dragged ends first, so the output matches a finished one.
+        overlays.inkViews.values.forEach { $0.finishActiveStroke() }
         guard let (id, cv) = overlays.captureViews.first(where: { $0.value.selection != nil }),
               let sel = cv.selection, let frame = frames[id], let ink = overlays.inkViews[id] else { return nil }
         return Compositor.image(base: frame.image, baseScale: frame.scale, strokes: ink.model.strokes, selection: sel)
