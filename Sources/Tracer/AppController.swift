@@ -130,6 +130,7 @@ final class AppController: NSObject {
         saveFolder = s.saveFolder
         fadeDelay = s.fadeDelay
         session.setFadeDelay(s.fadeDelay)
+        if previous?.strokeWidths != s.strokeWidths { width = nil }
         overlays.inkViews.values.forEach(applyStyle)
         if previous?.penHotkey != s.penHotkey || previous?.captureHotkey != s.captureHotkey || previous == nil { registerHotkeys() }
         settingsModel.settings = settings
@@ -456,11 +457,11 @@ final class AppController: NSObject {
     // Steps from what's in use, a context-menu pick included, and saves it as the tool's width.
     private func stepWidth(thicker: Bool) {
         guard let w = steppedWidth(currentStyle.width, for: tool, thicker: thicker) else { return }
-        var s = settings
-        s.strokeWidths[tool] = w
-        width = nil
-        update(s)
-        trackRing()
+        if w != currentStyle.width {
+            var s = settings
+            s.strokeWidths[tool] = w
+            update(s)
+        }
         let label = sizeLabel(tool: tool, width: currentStyle.width)
         overlays.inkViews.values.forEach { $0.flashLabel(label) }
     }

@@ -78,6 +78,13 @@ private func drawing() -> Session {
     #expect(s.handle(.command(.thicker)).isEmpty && s.handle(.command(.thinner)).isEmpty)
 }
 
+@Test func bracketsIgnoredWhileTyping() {
+    var s = drawing()
+    _ = s.handle(.command(.selectTool(.text)))
+    _ = s.handle(.textEditingBegan)
+    #expect(s.handle(.command(.thicker)).isEmpty && s.handle(.command(.thinner)).isEmpty)
+}
+
 @Test func widthStepsAndClamps() {
     #expect(steppedWidth(4, for: .pen, thicker: true) == 6)
     #expect(steppedWidth(4, for: .pen, thicker: false) == 3)
@@ -88,7 +95,10 @@ private func drawing() -> Session {
     #expect(steppedWidth(18, for: .text, thicker: true) == 24)
     #expect(steppedWidth(72, for: .text, thicker: true) == 72)
     #expect(steppedWidth(18, for: .highlighter, thicker: false) == 12)
-    #expect(steppedWidth(2, for: .highlighter, thicker: false) == 8)
+    #expect(steppedWidth(2, for: .highlighter, thicker: false) == 2)
+    #expect(steppedWidth(2, for: .highlighter, thicker: true) == 8)
+    #expect(steppedWidth(30, for: .pen, thicker: true) == 30)
+    #expect(steppedWidth(30, for: .pen, thicker: false) == 24)
     #expect(steppedWidth(4, for: .spotlight, thicker: true) == nil)
     #expect(steppedWidth(4, for: .redact, thicker: false) == nil)
 }

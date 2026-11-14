@@ -101,7 +101,7 @@ public struct Session: Sendable {
             guard let t = history.first(where: { $0.isAvailable(in: mode) }) else { return [] }
             return apply(.selectTool(t))
         case .thinner, .thicker:
-            return widthSteps(for: tool) == nil ? [] : [.stepWidth(thicker: c == .thicker)]
+            return widthSteps(for: tool) == nil || isEditingText ? [] : [.stepWidth(thicker: c == .thicker)]
         case .undo: return [.undo]
         case .redo: return [.redo]
         case .clearAll: return [.clearAll]

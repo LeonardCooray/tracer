@@ -54,9 +54,8 @@ public func clampWidth(_ w: Double, for tool: Tool) -> Double? {
     return min(max(w, lo), hi)
 }
 
-// Off-ladder widths (the 3.5 pt rectangle, a context-menu pick) snap to the neighbouring step.
+// Off-ladder widths (the 3.5 pt rectangle, a context-menu pick) snap to the neighbouring step; past the end it stays put.
 public func steppedWidth(_ w: Double, for tool: Tool, thicker: Bool) -> Double? {
     guard let steps = widthSteps(for: tool) else { return nil }
-    let next = thicker ? steps.first { $0 > w } : steps.last { $0 < w }
-    return next ?? clampWidth(w, for: tool)
+    return (thicker ? steps.first { $0 > w } : steps.last { $0 < w }) ?? w
 }

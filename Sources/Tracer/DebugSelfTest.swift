@@ -194,6 +194,10 @@ enum DebugSelfTest {
         c.dockState.onWidth(14)
         c.send(.command(.thinner))
         check(v.style.width == 12, "[ steps from a context-menu width (\(v.style.width))")
+        c.dockState.onWidth(48)
+        c.send(.command(.thicker))
+        check(v.style.width == 48 && c.settings.strokeWidth(for: .pen) == 12, "] past the maximum leaves the width alone")
+        c.send(.command(.selectTool(.pen)))
 
         c.send(.command(.selectTool(.arrow)))
         check(v.style.width == defaultWidth(for: .arrow), "other tools keep their own width")
@@ -376,7 +380,9 @@ enum DebugSelfTest {
         widths.strokeWidths[.pen] = 10
         widths.strokeWidths[.highlighter] = 32
         c.update(widths)
+        c.dockState.onWidth(14)
         c.settingsModel.update { $0.strokeWidths = StrokeWidths() }
+        check(c.overlays.inkViews.values.allSatisfy { $0.style.width == defaultWidth(for: c.tool) }, "reset also drops a context-menu width")
         check(c.settings.strokeWidths.isEmpty && c.store.load().strokeWidths.isEmpty, "reset stroke widths clears saved widths")
         check(c.settings.strokeWidth(for: .pen) == defaultWidth(for: .pen), "reset puts tools back to their defaults")
 
