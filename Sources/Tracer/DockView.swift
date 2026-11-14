@@ -69,6 +69,10 @@ struct DockView: View {
         .contextMenu {
             Button("More Colours…") { state.onMoreColors() }
             Divider()
+            Button("Thinner  [") { state.onCommand(.thinner) }
+            Button("Thicker  ]") { state.onCommand(.thicker) }
+            Button("Last Tool  Tab") { state.onCommand(.toggleTool) }
+            Divider()
             ForEach([("Thin", 2.0), ("Medium", 4.0), ("Thick", 8.0), ("Extra thick", 14.0), ("Marker", 24.0)], id: \.0) { name, w in
                 Button(name) { state.onWidth(w) }
             }

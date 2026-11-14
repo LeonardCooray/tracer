@@ -30,6 +30,9 @@ public enum Tool: Int, CaseIterable, Codable, Sendable {
 public func pointerLabel(tool: Tool, fadeDelay: Double, shiftHeld: Bool) -> String {
     if tool == .spotlight { return tool.displayName }
     if shiftHeld { return "\(tool.displayName) · stays" }
-    let n = fadeDelay.rounded() == fadeDelay ? String(Int(fadeDelay)) : String(fadeDelay)
-    return "\(tool.displayName) · fades \(n)s"
+    return "\(tool.displayName) · fades \(trimmed(fadeDelay))s"
 }
+
+public func sizeLabel(tool: Tool, width: Double) -> String { "\(tool.displayName) · \(trimmed(width)) pt" }
+
+private func trimmed(_ v: Double) -> String { v.rounded() == v ? String(Int(v)) : String(v) }

@@ -63,6 +63,8 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 | Key | What it does |
 |---|---|
 | 1–7 | Pen, highlighter, arrow, rectangle, spotlight, text, ellipse |
+| Tab | Switch back to the tool you used before this one |
+| [ / ] | Thinner / thicker for the current tool; text gets smaller / bigger, spotlight has no width. Each tool remembers its own |
 | Shift | Keep the current stroke instead of letting it fade |
 | ⌘Z | Undo the last stroke |
 | ⌘⇧Z | Redo (a redone stroke starts its fade again) |
@@ -74,6 +76,8 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 | Key | What it does |
 |---|---|
 | 1–7 | Pen, highlighter, arrow, rectangle, redact, text, ellipse |
+| Tab | Switch back to the tool you used before this one |
+| [ / ] | Thinner / thicker for the current tool (not redact) |
 | Return or ⌘C | Copy the selection |
 | ⌘S | Save the selection to your folder |
 | ⌘Z / ⌘⇧Z | Undo / redo |
@@ -88,6 +92,7 @@ Open **Settings…** from the menu bar icon to change:
 - The save folder (`~/Pictures/Tracer` by default)
 - Image format, PNG or JPEG
 - Whether to show the cursor ring when you're not drawing
+- Reset stroke widths, putting every tool back to its default width
 - Launch at login
 
 The menu also shows which version you're running. **Check for Updates…** opens the latest release in your browser; Tracer itself never goes online.

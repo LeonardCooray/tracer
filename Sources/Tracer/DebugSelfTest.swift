@@ -158,9 +158,70 @@ enum DebugSelfTest {
         c.text.cancel()
         check(!c.text.isEditing && !c.session.isEditingText, "cancel drops the text box")
 
+        await toolKeys(c, v)
+
         c.send(.penHotkey)
         await pause(0.4)
         check(!c.dock.isVisible, "dock hidden after drawing ends")
+    }
+
+    static func toolKeys(_ c: AppController, _ v: InkView) async {
+        c.send(.penHotkey)
+        c.send(.penHotkey)
+        check(c.sessionKeyCount == 15 && c.sessionKeyWarnings.isEmpty, "Tab, [ and ] registered with the drawing keys (\(c.sessionKeyCount))")
+        c.send(.command(.selectTool(.arrow)))
+        c.send(.command(.selectTool(.pen)))
+        c.send(.command(command(for: .tab, mode: .drawing, isEditingText: false)!))
+        check(c.tool == .arrow && c.dockState.tool == .arrow, "Tab goes back to the previous tool")
+        c.send(.command(.toggleTool))
+        check(c.tool == .pen, "Tab again returns to the pen")
+
+        c.send(.command(.clearAll))
+        drag(v, from: NSPoint(x: 200, y: 300), to: NSPoint(x: 600, y: 300), shift: true)
+        c.send(.command(command(for: .rightBracket, mode: .drawing, isEditingText: false)!))
+        check(v.style.width == 6 && c.settings.strokeWidth(for: .pen) == 6, "] makes the pen thicker (\(v.style.width))")
+        check(c.store.load().strokeWidths[.pen] == 6, "pen width saved to prefs")
+        check(v.flashedLabel == "Pen · 6 pt", "label shows the new size (\(v.flashedLabel ?? "nil"))")
+        if let p = v.pointer { check(painted(v, at: NSPoint(x: p.x + 24, y: p.y - 26)), "size label drawn beside pointer") }
+        check(v.model.strokes.last?.style.width == 4, "existing stroke keeps its width")
+        drag(v, from: NSPoint(x: 200, y: 400), to: NSPoint(x: 600, y: 400), shift: true)
+        check(v.model.strokes.last?.style.width == 6, "new stroke uses the new width")
+        c.send(.command(.thinner))
+        c.send(.command(.thinner))
+        check(c.settings.strokeWidth(for: .pen) == 3, "[ steps thinner (\(c.settings.strokeWidth(for: .pen)))")
+        for _ in 0..<20 { c.send(.command(.thicker)) }
+        check(c.settings.strokeWidth(for: .pen) == 24, "] stops at the pen's maximum")
+        c.dockState.onWidth(14)
+        c.send(.command(.thinner))
+        check(v.style.width == 12, "[ steps from a context-menu width (\(v.style.width))")
+        c.dockState.onWidth(48)
+        c.send(.command(.thicker))
+        check(v.style.width == 48 && c.settings.strokeWidth(for: .pen) == 12, "] past the maximum leaves the width alone")
+        c.send(.command(.selectTool(.pen)))
+
+        c.send(.command(.selectTool(.arrow)))
+        check(v.style.width == defaultWidth(for: .arrow), "other tools keep their own width")
+        c.send(.command(.selectTool(.pen)))
+        check(v.style.width == 12, "pen width remembered across tool switches")
+
+        c.send(.command(.selectTool(.spotlight)))
+        v.flashLabel(nil)
+        let before = c.settings
+        c.send(.command(.thicker))
+        check(c.settings == before && v.flashedLabel == nil, "spotlight ignores [ and ]")
+
+        c.send(.command(.selectTool(.text)))
+        c.send(.command(.thicker))
+        check(c.settings.strokeWidth(for: .text) == 24 && v.flashedLabel == "Text · 24 pt", "] makes text bigger")
+        v.onTextClick?(v, NSPoint(x: 300, y: 600))
+        let field = v.subviews.compactMap { $0 as? NSTextField }.first
+        check(field?.font?.pointSize == 24, "text box uses the new size (\(field?.font?.pointSize ?? 0))")
+        c.text.cancel()
+
+        await pause(InkView.flashDuration + 0.3)
+        check(v.flashedLabel == nil, "label returns to normal after the flash")
+        c.send(.command(.selectTool(.pen)))
+        c.send(.command(.clearAll))
     }
 
     final class FakeCapturer: ScreenCapturing {
@@ -225,6 +286,16 @@ enum DebugSelfTest {
         dragCV(NSPoint(x: 400, y: 400), NSPoint(x: 600, y: 500))
         check(v.model.strokes.count == 1 && v.model.strokes[0].tool == .arrow, "with a tool picked, drag inside draws")
         check(v.model.opacity(of: v.model.strokes[0], at: InkView.now + 100) == 1, "capture ink never fades")
+        check(c.sessionKeyCount == 18, "capture registers Tab, [ and ] too (\(c.sessionKeyCount))")
+        c.send(.command(.toggleTool))
+        check(c.tool == .pen, "Tab in capture goes back to the pen")
+        c.send(.command(.toggleTool))
+        c.send(.command(.thicker))
+        check(c.settings.strokeWidth(for: .arrow) == 6 && v.flashedLabel == "Arrow · 6 pt", "] in capture thickens the arrow and flashes the size")
+        c.send(.command(.selectTool(.redact)))
+        c.send(.command(.thinner))
+        check(c.settings.strokeWidths[.redact] == nil, "redact ignores [ and ]")
+        c.send(.command(.selectTool(.arrow)))
         let before = cv.selection
 
         c.send(.command(.copy))
@@ -304,6 +375,16 @@ enum DebugSelfTest {
         c.update(ring)
         check(panels.allSatisfy { !$0.isVisible }, "ring off hides overlays")
         check(c.ringMonitors.isEmpty, "ring off removes monitors")
+
+        var widths = c.settings
+        widths.strokeWidths[.pen] = 10
+        widths.strokeWidths[.highlighter] = 32
+        c.update(widths)
+        c.dockState.onWidth(14)
+        c.settingsModel.update { $0.strokeWidths = StrokeWidths() }
+        check(c.overlays.inkViews.values.allSatisfy { $0.style.width == defaultWidth(for: c.tool) }, "reset also drops a context-menu width")
+        check(c.settings.strokeWidths.isEmpty && c.store.load().strokeWidths.isEmpty, "reset stroke widths clears saved widths")
+        check(c.settings.strokeWidth(for: .pen) == defaultWidth(for: .pen), "reset puts tools back to their defaults")
 
         c.settingsWindow.show()
         await pause(0.5)

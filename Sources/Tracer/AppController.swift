@@ -130,6 +130,7 @@ final class AppController: NSObject {
         saveFolder = s.saveFolder
         fadeDelay = s.fadeDelay
         session.setFadeDelay(s.fadeDelay)
+        if previous?.strokeWidths != s.strokeWidths { width = nil }
         overlays.inkViews.values.forEach(applyStyle)
         if previous?.penHotkey != s.penHotkey || previous?.captureHotkey != s.captureHotkey || previous == nil { registerHotkeys() }
         settingsModel.settings = settings
@@ -271,7 +272,7 @@ final class AppController: NSObject {
             text.cancel()
             dock.slideOut()
             NSColorPanel.shared.orderOut(nil)
-            overlays.inkViews.values.forEach { $0.showsCursorRing = false; $0.setPointer(nil) }
+            overlays.inkViews.values.forEach { $0.showsCursorRing = false; $0.flashLabel(nil); $0.setPointer(nil) }
             overlays.captureViews.values.forEach { $0.reset() }
             overlays.frozenViews.values.forEach { $0.frame_ = nil }
             overlays.inkViews.values.forEach { $0.frozenFrame = nil }
@@ -300,6 +301,8 @@ final class AppController: NSObject {
             width = nil
             overlays.inkViews.values.forEach(applyStyle)
             if session.mode == .capturing { overlays.captureViews.values.forEach { $0.armed = true } }
+        case .stepWidth(let thicker):
+            stepWidth(thicker: thicker)
         case .undo:
             // Entries for strokes that already faded away are skipped.
             while let (v, id) = strokeOrder.popLast() {
@@ -432,7 +435,7 @@ final class AppController: NSObject {
         NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
     }
 
-    private var currentStyle: StrokeStyle { StrokeStyle(color: color, width: width ?? defaultWidth(for: tool)) }
+    private var currentStyle: StrokeStyle { StrokeStyle(color: color, width: width ?? settings.strokeWidth(for: tool)) }
 
     private func applyStyle(to view: InkView) {
         view.tool = tool
@@ -449,6 +452,18 @@ final class AppController: NSObject {
     private func setWidth(_ w: Double) {
         width = w
         overlays.inkViews.values.forEach(applyStyle)
+    }
+
+    // Steps from what's in use, a context-menu pick included, and saves it as the tool's width.
+    private func stepWidth(thicker: Bool) {
+        guard let w = steppedWidth(currentStyle.width, for: tool, thicker: thicker) else { return }
+        if w != currentStyle.width {
+            var s = settings
+            s.strokeWidths[tool] = w
+            update(s)
+        }
+        let label = sizeLabel(tool: tool, width: currentStyle.width)
+        overlays.inkViews.values.forEach { $0.flashLabel(label) }
     }
 
     private func showColorPanel() {
@@ -470,6 +485,9 @@ extension SessionKey {
     var label: String {
         switch self {
         case .digit(let n): "\(n)"
+        case .tab: "Tab"
+        case .leftBracket: "["
+        case .rightBracket: "]"
         case .escape: "Esc"
         case .delete: "Delete"
         case .undo: "⌘Z"
