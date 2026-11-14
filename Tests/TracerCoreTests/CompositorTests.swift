@@ -29,6 +29,17 @@ private func redPixels(_ img: CGImage) -> Int {
     #expect(redPixels(out) > 100)
 }
 
+@Test func compositeIncludesEllipseAtFullScale() {
+    let s = Stroke(tool: .ellipse, points: [CGPoint(x: 15, y: 15), CGPoint(x: 55, y: 55)],
+                   style: StrokeStyle(color: RGBA(hex: 0xFF0000), width: 3.5), finishedAt: 0)
+    let out = Compositor.image(base: base(px: 200), baseScale: 2, strokes: [s], selection: CGRect(x: 10, y: 10, width: 50, height: 50))!
+    let c = Canvas(size: 100)
+    c.ctx.draw(out, in: CGRect(x: 0, y: 0, width: 100, height: 100))
+    let edge = c.pixel(10, 50), centre = c.pixel(50, 50)
+    #expect(edge.r > 200 && edge.g < 80 && edge.b < 80)
+    #expect(centre == (255, 255, 255, 255))
+}
+
 @Test func compositeCropsToSelection() {
     let s = Stroke(tool: .pen, points: [CGPoint(x: 0, y: 90), CGPoint(x: 100, y: 90)],
                    style: StrokeStyle(color: RGBA(hex: 0xFF0000), width: 4), finishedAt: 0)

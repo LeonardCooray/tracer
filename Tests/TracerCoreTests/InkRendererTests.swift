@@ -54,6 +54,45 @@ private func stroke(_ tool: Tool, _ pts: [CGPoint], color: RGBA = RGBA(hex: 0xFF
     #expect(c.pixel(50, 50).a == 0)
 }
 
+@Test func ellipseIsOutlineOnlyAndRound() {
+    let c = Canvas()
+    InkRenderer.draw([stroke(.ellipse, [CGPoint(x: 80, y: 70), CGPoint(x: 20, y: 30)])], in: c.ctx) { _ in 1 }
+    for (x, y) in [(20, 50), (80, 50), (50, 30), (50, 70)] {
+        let p = c.pixel(x, y)
+        #expect(p.r > 200 && p.g < 40 && p.a > 200, "edge at (\(x), \(y)) is \(p)")
+    }
+    #expect(c.pixel(50, 50).a == 0)
+    #expect(c.pixel(21, 31).a == 0 && c.pixel(79, 69).a == 0)
+}
+
+@Test func ellipseClickPaintsNothing() {
+    let c = Canvas()
+    InkRenderer.draw([stroke(.ellipse, [CGPoint(x: 50, y: 50)])], in: c.ctx) { _ in 1 }
+    #expect(!c.anyPainted)
+    let c2 = Canvas()
+    InkRenderer.draw([stroke(.ellipse, [CGPoint(x: 50, y: 50), CGPoint(x: 51, y: 51)])], in: c2.ctx) { _ in 1 }
+    #expect(!c2.anyPainted)
+}
+
+@Test func tinyEllipsesAreDropped() {
+    let st = StrokeStyle(color: RGBA(hex: 0xFF0000), width: 3.5)
+    #expect(isTooSmall(Stroke(tool: .ellipse, points: [CGPoint(x: 0, y: 0)], style: st)))
+    #expect(isTooSmall(Stroke(tool: .ellipse, points: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1)], style: st)))
+    #expect(!isTooSmall(Stroke(tool: .ellipse, points: [CGPoint(x: 0, y: 0), CGPoint(x: 2, y: 0)], style: st)))
+    #expect(!isTooSmall(Stroke(tool: .ellipse, points: [CGPoint(x: 0, y: 0), CGPoint(x: 0, y: 40)], style: st)))
+}
+
+@Test func ellipseDrawsAboveRedact() {
+    let c = Canvas()
+    let ring = stroke(.ellipse, [CGPoint(x: 20, y: 20), CGPoint(x: 80, y: 80)])
+    let box = Stroke(tool: .redact, points: [CGPoint(x: 10, y: 10), CGPoint(x: 90, y: 90)],
+                     style: StrokeStyle(color: RGBA(hex: 0x0000FF), width: 0), finishedAt: 0)
+    InkRenderer.draw([ring, box], in: c.ctx) { _ in 1 }
+    let edge = c.pixel(20, 50)
+    #expect(edge.r > 200 && edge.b < 40)
+    #expect(c.pixel(50, 50) == (0, 0, 255, 255))
+}
+
 @Test func arrowPaintsShaftAndHead() {
     let c = Canvas()
     InkRenderer.draw([stroke(.arrow, [CGPoint(x: 10, y: 50), CGPoint(x: 90, y: 50)])], in: c.ctx) { _ in 1 }
@@ -110,6 +149,7 @@ private func stroke(_ tool: Tool, _ pts: [CGPoint], color: RGBA = RGBA(hex: 0xFF
         stroke(.pen, [CGPoint(x: 20, y: 20), CGPoint(x: 70, y: 40)], width: 8),
         stroke(.arrow, [CGPoint(x: 20, y: 70), CGPoint(x: 80, y: 70)]),
         stroke(.rectangle, [CGPoint(x: 30, y: 30), CGPoint(x: 60, y: 60)]),
+        stroke(.ellipse, [CGPoint(x: 70, y: 10), CGPoint(x: 15, y: 90)], width: 8),
         stroke(.highlighter, [CGPoint(x: 15, y: 50), CGPoint(x: 85, y: 50)], width: 18),
         { var s = stroke(.text, [CGPoint(x: 10, y: 30)], width: 18); s.text = "Hey"; return s }(),
     ]

@@ -40,6 +40,11 @@ public enum InkRenderer {
                 let end = s.points.last!
                 ctx.stroke(CGRect(x: min(first.x, end.x), y: min(first.y, end.y),
                                   width: abs(end.x - first.x), height: abs(end.y - first.y)))
+            case .ellipse:
+                let end = s.points.last!
+                guard !isTooSmall(s) else { break }
+                ctx.strokeEllipse(in: CGRect(x: min(first.x, end.x), y: min(first.y, end.y),
+                                             width: abs(end.x - first.x), height: abs(end.y - first.y)))
             case .text:
                 drawText(s.text ?? "", at: first, size: s.style.width, color: color, in: ctx)
             case .redact:
@@ -59,6 +64,7 @@ public enum InkRenderer {
 
     public static let minimumArrowLength = 2.0
     public static let minimumRedactSide = 2.0
+    public static let minimumEllipseDiagonal = 2.0
 
     // A pen path through the midpoints of successive samples, so fast strokes stay smooth.
     static func smoothPath(_ pts: [CGPoint]) -> CGPath {
@@ -104,7 +110,7 @@ public func inkBounds(of s: Stroke) -> CGRect {
     switch s.tool {
     case .pen: return box(s.points, pad: w / 2 + 1)
     case .highlighter: return box(s.points, pad: w * 0.75 + 1)
-    case .rectangle: return box([first, s.points.last!], pad: w / 2 + 1)
+    case .rectangle, .ellipse: return box([first, s.points.last!], pad: w / 2 + 1)
     case .redact: return box([first, s.points.last!], pad: 1)
     case .arrow:
         let end = s.points.last!
@@ -128,11 +134,12 @@ public func inkBounds(of s: Stroke) -> CGRect {
     }
 }
 
-// Arrows and redact boxes this small are dropped when the drag ends.
+// Arrows, ellipses and redact boxes this small are dropped when the drag ends.
 public func isTooSmall(_ s: Stroke) -> Bool {
     guard let a = s.points.first, let b = s.points.last else { return false }
     switch s.tool {
     case .arrow: return hypot(b.x - a.x, b.y - a.y) < InkRenderer.minimumArrowLength
+    case .ellipse: return hypot(b.x - a.x, b.y - a.y) < InkRenderer.minimumEllipseDiagonal
     case .redact: return min(abs(b.x - a.x), abs(b.y - a.y)) < InkRenderer.minimumRedactSide
     default: return false
     }

@@ -38,3 +38,9 @@ import Testing
     #expect(command(for: .digit(5), mode: .capturing, isEditingText: false) == .selectTool(.redact))
     #expect(command(for: .digit(5), mode: .drawing, isEditingText: false) == .selectTool(.spotlight))
 }
+
+@Test func digitSevenIsEllipse() {
+    #expect(command(for: .digit(7), mode: .drawing, isEditingText: false) == .selectTool(.ellipse))
+    #expect(command(for: .digit(7), mode: .capturing, isEditingText: false) == .selectTool(.ellipse))
+    #expect(command(for: .digit(7), mode: .drawing, isEditingText: true) == nil)
+}

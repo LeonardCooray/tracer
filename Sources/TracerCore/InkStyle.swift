@@ -33,7 +33,7 @@ public func defaultWidth(for tool: Tool) -> Double {
     switch tool {
     case .pen, .arrow: 4
     case .highlighter: 18
-    case .rectangle: 3.5
+    case .rectangle, .ellipse: 3.5
     case .text: 18
     case .spotlight, .redact: 0
     }

@@ -51,6 +51,7 @@ final class HotkeyCenter {
             (Hotkey(keyCode: KeyCode.four, modifiers: 0), .digit(4)),
             (Hotkey(keyCode: KeyCode.five, modifiers: 0), .digit(5)),
             (Hotkey(keyCode: KeyCode.six, modifiers: 0), .digit(6)),
+            (Hotkey(keyCode: KeyCode.seven, modifiers: 0), .digit(7)),
             (Hotkey(keyCode: KeyCode.escape, modifiers: 0), .escape),
             (Hotkey(keyCode: KeyCode.delete, modifiers: 0), .delete),
             (Hotkey(keyCode: KeyCode.forwardDelete, modifiers: 0), .delete),
