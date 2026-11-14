@@ -926,7 +926,7 @@ enum DebugSelfTest {
         check(c.tool == .pen && c.session.tool == .pen, "drawing after a capture falls back to pen")
         c.send(.escape)
 
-        await redactWideGamut(c, screen: screen)
+        await redactWideGamut(c, display: id, screen: screen)
     }
 
     // Every copied pixel under `box` (view points), edges included.
@@ -976,13 +976,13 @@ enum DebugSelfTest {
         }
     }
 
-    static func redactWideGamut(_ c: AppController, screen: NSScreen) async {
+    static func redactWideGamut(_ c: AppController, display id: CGDirectDisplayID, screen: NSScreen) async {
         let fake: CGDirectDisplayID = 0x7E57_0002
         c.overlays.addTestDisplay(fake, on: screen)
         c.capturer = WideCapturer(extra: fake)
         c.requestCapture()
         await pause(0.5)
-        guard let (id, cv) = c.overlays.captureViews.first(where: { $0.key != fake }), let v = c.overlays.inkViews[id], let w = cv.window,
+        guard let cv = c.overlays.captureViews[id], let v = c.overlays.inkViews[id], let w = cv.window,
               let cv2 = c.overlays.captureViews[fake], let v2 = c.overlays.inkViews[fake], let w2 = cv2.window
         else { check(false, "wide-gamut and second-display capture set up"); return }
         func dragOn(_ view: CaptureView, _ win: NSWindow, _ a: NSPoint, _ b: NSPoint) {

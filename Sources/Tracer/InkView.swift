@@ -15,8 +15,13 @@ final class InkView: NSView {
     var onPointerMoved: ((InkView) -> Void)?
     private(set) var pointer: NSPoint?
     var acceptsInput = true
-    var frozenFrame: FrozenFrame? { didSet { pixels = frozenFrame.flatMap { FramePixels($0.image) } } }
-    private var pixels: FramePixels?
+    var frozenFrame: FrozenFrame? { didSet { readPixels = nil } }
+    private var readPixels: FramePixels?
+    // Read on the first redact press, so captures without redact never copy the frame.
+    private var pixels: FramePixels? {
+        if readPixels == nil, let f = frozenFrame { readPixels = FramePixels(f.image) }
+        return readPixels
+    }
     private var shiftHeld = false
     private var link: CADisplayLink?
 
