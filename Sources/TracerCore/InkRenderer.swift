@@ -42,7 +42,7 @@ public enum InkRenderer {
                                   width: abs(end.x - first.x), height: abs(end.y - first.y)))
             case .ellipse:
                 let end = s.points.last!
-                guard hypot(end.x - first.x, end.y - first.y) >= minimumEllipseDiagonal else { break }
+                guard !isTooSmall(s) else { break }
                 ctx.strokeEllipse(in: CGRect(x: min(first.x, end.x), y: min(first.y, end.y),
                                              width: abs(end.x - first.x), height: abs(end.y - first.y)))
             case .text:

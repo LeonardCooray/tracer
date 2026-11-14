@@ -624,7 +624,7 @@ enum DebugSelfTest {
         v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 603, y: 502), in: w))
         let box = v.model.strokes.last.map(inkBounds(of:)) ?? .zero
         check(v.model.strokes.last?.tool == .ellipse && v.largestInvalidation <= box.width * box.height + 1,
-              "ellipse drag redraws only its own box (\(Int(share() * 100))% of screen)")
+              "ellipse drag redraws only its own box (\(Int(v.largestInvalidation)) of \(Int(box.width * box.height)) pt²)")
         v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 603, y: 502), in: w))
         c.send(.command(.clearAll))
         c.send(.penHotkey)
@@ -896,14 +896,13 @@ enum DebugSelfTest {
         }
         check(flat && first.map { abs($0[0] - 128) <= 1 && $0[0] == $0[1] && $0[1] == $0[2] && $0[3] == 255 } == true,
               "copied image is one flat colour under the box (flat \(flat), \(String(describing: first)))")
+        let k = screen.backingScaleFactor
         func copied(_ x: Double, _ y: Double) -> [Int]? {
             guard let rep else { return nil }
             var raw = [Int](repeating: 0, count: 4)
-            let k = screen.backingScaleFactor
             rep.getPixel(&raw, atX: Int((x - sel.minX) * k), y: Int((sel.maxY - y) * k))
             return raw
         }
-        let k = screen.backingScaleFactor
         check(rep.map { $0.pixelsWide == Int(sel.width * k) && $0.pixelsHigh == Int(sel.height * k) } == true,
               "copy is full Retina size (\(rep?.pixelsWide ?? 0) × \(rep?.pixelsHigh ?? 0))")
         let edge = copied(mid + 250, 500), inside = copied(mid + 350, 500)
