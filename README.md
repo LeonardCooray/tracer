@@ -34,7 +34,7 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 
 **Draw live over the screen**
 
-- Six tools: pen, highlighter, arrow, rectangle, spotlight and text
+- Seven tools: pen, highlighter, arrow, rectangle, spotlight, text and ellipse
 - Ink fades after a few seconds, or hold Shift to keep a stroke
 - A slim tool dock slides in from the screen edge and gets out of the way when you're not using it
 - Works across multiple displays
@@ -62,7 +62,7 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 
 | Key | What it does |
 |---|---|
-| 1–6 | Pen, highlighter, arrow, rectangle, spotlight, text |
+| 1–7 | Pen, highlighter, arrow, rectangle, spotlight, text, ellipse |
 | Shift | Keep the current stroke instead of letting it fade |
 | ⌘Z | Undo the last stroke |
 | ⌘⇧Z | Redo (a redone stroke starts its fade again) |
@@ -73,7 +73,7 @@ The first screenshot asks for **Screen Recording** permission. Updates are signe
 
 | Key | What it does |
 |---|---|
-| 1–6 | Pen, highlighter, arrow, rectangle, redact, text |
+| 1–7 | Pen, highlighter, arrow, rectangle, redact, text, ellipse |
 | Return or ⌘C | Copy the selection |
 | ⌘S | Save the selection to your folder |
 | ⌘Z / ⌘⇧Z | Undo / redo |

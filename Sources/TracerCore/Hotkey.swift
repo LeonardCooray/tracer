@@ -2,7 +2,7 @@
 public enum KeyCode {
     public static let a: UInt32 = 0, s: UInt32 = 1, d: UInt32 = 2, c: UInt32 = 8, z: UInt32 = 6
     public static let one: UInt32 = 18, two: UInt32 = 19, three: UInt32 = 20, four: UInt32 = 21
-    public static let five: UInt32 = 23, six: UInt32 = 22
+    public static let five: UInt32 = 23, six: UInt32 = 22, seven: UInt32 = 26
     public static let returnKey: UInt32 = 36, delete: UInt32 = 51, escape: UInt32 = 53, forwardDelete: UInt32 = 117
 
     static let names: [UInt32: String] = [

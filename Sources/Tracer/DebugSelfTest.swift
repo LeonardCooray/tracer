@@ -100,6 +100,28 @@ enum DebugSelfTest {
         }
         c.send(.command(.clearAll))
 
+        c.send(.command(command(for: .digit(7), mode: .drawing, isEditingText: false)!))
+        check(c.tool == .ellipse && c.dockState.tool == .ellipse && Tool.tools(for: c.dockState.mode).last == .ellipse,
+              "key 7 selects Ellipse, last in the dock")
+        check(v.style.width == defaultWidth(for: .rectangle), "ellipse has the rectangle's width")
+        drag(v, from: NSPoint(x: 200, y: 300), to: NSPoint(x: 600, y: 500))
+        check(v.model.strokes.count == 1 && v.model.strokes[0].tool == .ellipse && !v.model.strokes[0].pinned, "Ellipse stroke recorded, fading")
+        check(painted(v, at: NSPoint(x: 200, y: 400)) && painted(v, at: NSPoint(x: 400, y: 500)) && painted(v, at: NSPoint(x: 600, y: 400)),
+              "ellipse paints its edge")
+        check(!painted(v, at: NSPoint(x: 400, y: 400), minAlpha: 0.05) && !painted(v, at: NSPoint(x: 206, y: 306), minAlpha: 0.05),
+              "ellipse is outline only with clear corners")
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "undo removes the ellipse")
+        c.send(.command(.redo))
+        check(v.model.strokes.last?.tool == .ellipse && v.model.strokes.count == 1, "redo restores the ellipse")
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 300, y: 650), in: v.window!))
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 650), in: v.window!))
+        drag(v, from: NSPoint(x: 400, y: 650), to: NSPoint(x: 401, y: 651))
+        check(v.model.strokes.count == 1, "ellipse click or jitter leaves nothing behind")
+        drag(v, from: NSPoint(x: 700, y: 300), to: NSPoint(x: 800, y: 380), shift: true)
+        check(v.model.strokes.last?.tool == .ellipse && v.model.strokes.last?.pinned == true, "Shift keeps an ellipse")
+        c.send(.command(.clearAll))
+
         c.setColor(InkPalette.presets[3])
         check(v.style.color == InkPalette.presets[3] && c.dockState.color == InkPalette.presets[3], "colour applies to ink and dock")
 
@@ -594,6 +616,17 @@ enum DebugSelfTest {
         v.largestInvalidation = 0
         await pause(0.3)
         check(share() < 0.05, "fading redraws only the fading ink (\(Int(share() * 100))%)")
+
+        c.send(.command(.selectTool(.ellipse)))
+        v.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 300, y: 300), in: w))
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 600, y: 500), in: w))
+        v.largestInvalidation = 0
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 603, y: 502), in: w))
+        let box = v.model.strokes.last.map(inkBounds(of:)) ?? .zero
+        check(v.model.strokes.last?.tool == .ellipse && v.largestInvalidation <= box.width * box.height + 1,
+              "ellipse drag redraws only its own box (\(Int(share() * 100))% of screen)")
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 603, y: 502), in: w))
+        c.send(.command(.clearAll))
         c.send(.penHotkey)
     }
 
@@ -840,6 +873,14 @@ enum DebugSelfTest {
         c.send(.command(.redo))
         check(v.model.strokes.last?.tool == .redact && v.model.strokes.last?.style.color == fill, "redo keeps the fill")
 
+        c.send(.command(command(for: .digit(7), mode: .capturing, isEditingText: false)!))
+        check(c.tool == .ellipse && Tool.tools(for: c.dockState.mode)[6] == .ellipse, "key 7 picks ellipse, seventh in the dock")
+        dragCV(NSPoint(x: mid + 250, y: 450), NSPoint(x: mid + 450, y: 550))
+        c.send(.command(.selectTool(.redact)))
+        dragCV(NSPoint(x: mid + 240, y: 440), NSPoint(x: mid + 460, y: 560))
+        let rim = pixel(v, at: NSPoint(x: mid + 250, y: 500))
+        check(rim.map { $0.redComponent > 0.8 && $0.greenComponent < 0.5 } == true, "ellipse stays on top of a later redact box")
+
         c.send(.command(.copy))
         await pause(0.2)
         let rep = NSPasteboard.general.data(forType: .png).flatMap { NSBitmapImageRep(data: $0) }
@@ -855,6 +896,19 @@ enum DebugSelfTest {
         }
         check(flat && first.map { abs($0[0] - 128) <= 1 && $0[0] == $0[1] && $0[1] == $0[2] && $0[3] == 255 } == true,
               "copied image is one flat colour under the box (flat \(flat), \(String(describing: first)))")
+        func copied(_ x: Double, _ y: Double) -> [Int]? {
+            guard let rep else { return nil }
+            var raw = [Int](repeating: 0, count: 4)
+            let k = screen.backingScaleFactor
+            rep.getPixel(&raw, atX: Int((x - sel.minX) * k), y: Int((sel.maxY - y) * k))
+            return raw
+        }
+        let k = screen.backingScaleFactor
+        check(rep.map { $0.pixelsWide == Int(sel.width * k) && $0.pixelsHigh == Int(sel.height * k) } == true,
+              "copy is full Retina size (\(rep?.pixelsWide ?? 0) × \(rep?.pixelsHigh ?? 0))")
+        let edge = copied(mid + 250, 500), inside = copied(mid + 350, 500)
+        check(edge.map { $0[0] > 200 && $0[1] < 128 } == true && inside.map { $0[0] > 240 && $0[1] > 240 && $0[2] > 240 } == true,
+              "copied image has the ellipse outline over the box, not a fill (\(String(describing: edge)), \(String(describing: inside)))")
 
         check(c.session.mode == .idle && c.session.tool == .redact, "copy ends capture with redact still picked")
         c.send(.penHotkey)

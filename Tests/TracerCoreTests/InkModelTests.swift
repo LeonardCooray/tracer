@@ -101,6 +101,7 @@ private func finishedStroke(_ m: InkModel, at time: Double, pinned: Bool = false
     #expect(defaultWidth(for: .pen) == 4)
     #expect(defaultWidth(for: .highlighter) == 18)
     #expect(defaultWidth(for: .rectangle) == 3.5)
+    #expect(defaultWidth(for: .ellipse) == defaultWidth(for: .rectangle))
     #expect(defaultWidth(for: .text) == 18)
 }
 

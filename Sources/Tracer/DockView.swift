@@ -24,6 +24,7 @@ extension Tool {
         case .spotlight: "light.max"
         case .text: "textformat"
         case .redact: "rectangle.fill"
+        case .ellipse: "circle"
         }
     }
 }
