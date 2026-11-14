@@ -16,7 +16,8 @@ public enum InkRenderer {
             ctx.setLineCap(.round)
             ctx.setLineWidth(s.style.width)
             let c = s.style.color
-            let color = CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a)
+            let color = s.style.colorSpace.flatMap { CGColor(colorSpace: $0, components: [c.r, c.g, c.b, c.a]) }
+                ?? CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a)
             ctx.setStrokeColor(color)
             ctx.setFillColor(color)
             switch s.tool {
@@ -53,7 +54,7 @@ public enum InkRenderer {
                 let r = CGRect(x: min(first.x, end.x), y: min(first.y, end.y), width: abs(end.x - first.x), height: abs(end.y - first.y))
                 ctx.setAlpha(1)
                 ctx.setShouldAntialias(false)
-                ctx.setFillColor(CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1))
+                ctx.setFillColor(color.copy(alpha: 1)!)
                 ctx.fill(ctx.convertToUserSpace(ctx.convertToDeviceSpace(r).integral))
             case .spotlight:
                 break
