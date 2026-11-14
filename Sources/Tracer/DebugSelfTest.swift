@@ -911,6 +911,21 @@ enum DebugSelfTest {
         let sel = CGRect(x: 100, y: 100, width: screen.frame.width - 200, height: screen.frame.height - 200)
         dragCV(sel.origin, NSPoint(x: sel.maxX, y: sel.maxY))
 
+        // The full-screen timings: one preview step mid-drag, then the exact fill at mouse-up.
+        c.send(.command(.selectTool(.redact)))
+        let ms = { (t: CFTimeInterval) in (CACurrentMediaTime() - t) * 1000 }
+        v.mouseDown(with: mouse(.leftMouseDown, .zero, in: w))
+        var t = CACurrentMediaTime()
+        v.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: screen.frame.width, y: screen.frame.height), in: w))
+        let preview = ms(t)
+        t = CACurrentMediaTime()
+        v.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: screen.frame.width, y: screen.frame.height), in: w))
+        let exact = ms(t)
+        check(grey(v.model.strokes.last?.style.color, 0.5) && preview < 2 && exact < 8,
+              String(format: "full-screen box fills inside one 120 Hz frame (preview %.2f ms, exact %.2f ms)", preview, exact))
+        c.send(.command(.undo))
+        check(v.model.strokes.isEmpty, "full-screen box undone")
+
         c.send(.command(command(for: .digit(5), mode: .capturing, isEditingText: false)!))
         check(c.tool == .redact && Tool.tools(for: c.dockState.mode)[4] == .redact, "key 5 picks redact, fifth in the dock")
 
@@ -962,22 +977,19 @@ enum DebugSelfTest {
         let rim = pixel(v, at: NSPoint(x: mid + 250, y: 500))
         check(rim.map { $0.redComponent > 0.8 && $0.greenComponent < 0.5 } == true, "ellipse stays on top of a later redact box")
 
+        // Copy while a box is still being dragged; the red stands in for a stale preview colour.
+        cv.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: mid - 50, y: 600), in: w))
+        cv.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: mid + 50, y: 700), in: w))
+        v.model.setActiveColor(RGBA(hex: 0xFF0000))
         c.send(.command(.copy))
         await pause(0.2)
         let rep = NSPasteboard.general.data(forType: .png).flatMap { NSBitmapImageRep(data: $0) }
-        // Raw bytes: colorAt converts through a calibrated space and shifts mid grey.
-        var flat = rep != nil, first: [Int]?
-        if let rep {
-            let k = screen.backingScaleFactor
-            for y in stride(from: 302.0, through: 398, by: 4) { for x in stride(from: mid - 48, through: mid + 48, by: 4) {
-                var raw = [Int](repeating: 0, count: 4)
-                rep.getPixel(&raw, atX: Int((x - sel.minX) * k), y: Int((sel.maxY - y) * k))
-                if let f = first { if raw != f { flat = false } } else { first = raw }
-            } }
-        }
-        check(flat && first.map { abs($0[0] - 128) <= 1 && $0[0] == $0[1] && $0[1] == $0[2] && $0[3] == 255 } == true,
-              "copied image is one flat colour under the box (flat \(flat), \(String(describing: first)))")
         let k = screen.backingScaleFactor
+        let under = rep.map { copiedPixels($0, NSRect(x: mid - 50, y: 300, width: 100, height: 100), k: k, sel: sel) }
+        check(under?.count == 1 && under?.first.map { abs($0[0] - 128) <= 1 && $0[0] == $0[1] && $0[1] == $0[2] && $0[3] == 255 } == true,
+              "copied image is one flat colour under the box, edges included (\(String(describing: under?.prefix(3))))")
+        let dragged = rep.map { copiedPixels($0, NSRect(x: mid - 50, y: 600, width: 100, height: 100), k: k, sel: sel) }
+        check(dragged != nil && dragged == under, "copy mid-drag uses the exact fill, not the preview (\(String(describing: dragged?.prefix(3))))")
         func copied(_ x: Double, _ y: Double) -> [Int]? {
             guard let rep else { return nil }
             var raw = [Int](repeating: 0, count: 4)
@@ -993,6 +1005,112 @@ enum DebugSelfTest {
         check(c.session.mode == .idle && c.session.tool == .redact, "copy ends capture with redact still picked")
         c.send(.penHotkey)
         check(c.tool == .pen && c.session.tool == .pen, "drawing after a capture falls back to pen")
+        c.send(.escape)
+
+        await redactWideGamut(c, display: id, screen: screen)
+    }
+
+    // Every copied pixel under `box` (view points), edges included.
+    static func copiedPixels(_ rep: NSBitmapImageRep, _ box: NSRect, k: Double, sel: NSRect) -> Set<[Int]> {
+        let r = NSRect(x: box.minX * k, y: box.minY * k, width: box.width * k, height: box.height * k).integral
+        var out = Set<[Int]>()
+        for y in Int(r.minY)..<Int(r.maxY) { for x in Int(r.minX)..<Int(r.maxX) {
+            var raw = [Int](repeating: 0, count: 4)
+            rep.getPixel(&raw, atX: x - Int(sel.minX * k), y: Int(sel.maxY * k) - 1 - y)
+            out.insert(raw)
+        } }
+        return out
+    }
+
+    // Real displays get BGRA Display P3 frames, left half pure P3 red, right half black; `extra` gets a 1x sRGB frame.
+    final class WideCapturer: ScreenCapturing {
+        let extra: CGDirectDisplayID
+        init(extra: CGDirectDisplayID) { self.extra = extra }
+        var hasPermission: Bool { true }
+        func requestPermission() {}
+        func captureAll() async throws -> [CGDirectDisplayID: FrozenFrame] {
+            var out: [CGDirectDisplayID: FrozenFrame] = [:]
+            for s in NSScreen.screens {
+                guard let id = s.displayID else { continue }
+                let scale = s.backingScaleFactor
+                let w = Int(s.frame.width * scale), h = Int(s.frame.height * scale)
+                let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
+                let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: p3,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+                ctx.setFillColor(CGColor(colorSpace: p3, components: [0, 0, 0, 1])!)
+                ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+                ctx.setFillColor(CGColor(colorSpace: p3, components: [1, 0, 0, 1])!)
+                ctx.fill(CGRect(x: 0, y: 0, width: w / 2, height: h))
+                out[id] = FrozenFrame(image: ctx.makeImage()!, scale: scale)
+                if out[extra] == nil {
+                    let w1 = Int(s.frame.width), h1 = Int(s.frame.height)
+                    let one = CGContext(data: nil, width: w1, height: h1, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                    one.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+                    one.fill(CGRect(x: 0, y: 0, width: w1, height: h1))
+                    one.setFillColor(CGColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1))
+                    one.fill(CGRect(x: 0, y: 0, width: w1, height: h1 / 2))
+                    out[extra] = FrozenFrame(image: one.makeImage()!, scale: 1)
+                }
+            }
+            return out
+        }
+    }
+
+    static func redactWideGamut(_ c: AppController, display id: CGDirectDisplayID, screen: NSScreen) async {
+        let fake: CGDirectDisplayID = 0x7E57_0002
+        c.overlays.addTestDisplay(fake, on: screen)
+        c.capturer = WideCapturer(extra: fake)
+        c.requestCapture()
+        await pause(0.5)
+        guard let cv = c.overlays.captureViews[id], let v = c.overlays.inkViews[id], let w = cv.window,
+              let cv2 = c.overlays.captureViews[fake], let v2 = c.overlays.inkViews[fake], let w2 = cv2.window
+        else { check(false, "wide-gamut and second-display capture set up"); return }
+        func dragOn(_ view: CaptureView, _ win: NSWindow, _ a: NSPoint, _ b: NSPoint) {
+            view.mouseDown(with: mouse(.leftMouseDown, a, in: win))
+            view.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2), in: win))
+            view.mouseDragged(with: mouse(.leftMouseDragged, b, in: win))
+            view.mouseUp(with: mouse(.leftMouseUp, b, in: win))
+        }
+        let mid = (screen.frame.width / 2).rounded(), k = screen.backingScaleFactor
+        let sel = CGRect(x: 100, y: 100, width: screen.frame.width - 200, height: screen.frame.height - 200)
+        dragOn(cv, w, sel.origin, NSPoint(x: sel.maxX, y: sel.maxY))
+        c.send(.command(.selectTool(.redact)))
+
+        dragOn(cv, w, NSPoint(x: mid - 300, y: 300), NSPoint(x: mid - 200, y: 400))
+        let red = v.model.strokes.last?.style
+        check(red?.colorSpace?.name == CGColorSpace.displayP3 && red.map { $0.color.r > 0.999 && $0.color.g < 0.001 && $0.color.b < 0.001 } == true,
+              "P3 red box keeps its full gamut (\(String(describing: red?.color)))")
+        let straddle = NSRect(x: mid - 50.3, y: 450.3, width: 100, height: 100.4)
+        dragOn(cv, w, straddle.origin, NSPoint(x: straddle.maxX, y: straddle.maxY))
+        c.send(.command(.copy))
+        await pause(0.2)
+        let rep = NSPasteboard.general.data(forType: .png).flatMap { NSBitmapImageRep(data: $0) }
+        let space = rep?.colorSpace.localizedName ?? "none"
+        let redPx = rep.map { copiedPixels($0, NSRect(x: mid - 300, y: 300, width: 100, height: 100), k: k, sel: sel) }
+        check(space.contains("P3") && redPx == [[255, 0, 0, 255]], "copied P3 box is exact P3 red (\(space), \(String(describing: redPx?.prefix(3))))")
+        let mixPx = rep.map { copiedPixels($0, straddle, k: k, sel: sel) }
+        check(mixPx?.count == 1 && mixPx?.first.map { abs($0[0] - 128) <= 2 && $0[1] == 0 && $0[2] == 0 && $0[3] == 255 } == true,
+              "half-red P3 box is flat at every edge, with no gamut shift (\(String(describing: mixPx?.prefix(3))))")
+
+        c.requestCapture()
+        await pause(0.5)
+        let sel2 = CGRect(x: 100, y: 100, width: screen.frame.width - 200, height: screen.frame.height - 200)
+        dragOn(cv2, w2, sel2.origin, NSPoint(x: sel2.maxX, y: sel2.maxY))
+        c.send(.command(.selectTool(.redact)))
+        let h = (screen.frame.height / 2).rounded()
+        let box = NSRect(x: 300, y: h - 50, width: 100, height: 100)
+        dragOn(cv2, w2, box.origin, NSPoint(x: box.maxX, y: box.maxY))
+        let fill = v2.model.strokes.last
+        check(fill?.tool == .redact && fill.map { abs($0.style.color.r - 0.6) < 0.01 && abs($0.style.color.g - 0.7) < 0.01 && abs($0.style.color.b - 0.8) < 0.01 } == true
+              && v.model.strokes.isEmpty, "box on a second display fills from that display's frame (\(String(describing: fill?.style.color)))")
+        c.send(.command(.copy))
+        await pause(0.2)
+        let rep2 = NSPasteboard.general.data(forType: .png).flatMap { NSBitmapImageRep(data: $0) }
+        let px2 = rep2.map { copiedPixels($0, box, k: 1, sel: sel2) }
+        check(rep2?.pixelsWide == Int(sel2.width) && px2?.count == 1
+              && px2?.first.map { abs($0[0] - 153) <= 1 && abs($0[1] - 178) <= 1 && abs($0[2] - 204) <= 1 } == true,
+              "second display's copy is 1x and flat under the box (\(rep2?.pixelsWide ?? 0) px, \(String(describing: px2?.prefix(3))))")
         c.send(.escape)
     }
 }

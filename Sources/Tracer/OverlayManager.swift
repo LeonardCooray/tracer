@@ -34,6 +34,9 @@ final class OverlayManager {
         panels.values.forEach { $0.orderOut(nil) }
         panels = [:]; inkViews = [:]; frozenViews = [:]; captureViews = [:]
     }
+
+    // A stand-in overlay for a display that isn't attached, so self-tests can cover a second display.
+    func addTestDisplay(_ id: CGDirectDisplayID, on screen: NSScreen) { build(screen, id: id) }
     #endif
 
     func screen(of id: CGDirectDisplayID) -> NSScreen? { NSScreen.screens.first { $0.displayID == id } }

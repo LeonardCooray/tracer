@@ -15,7 +15,13 @@ final class InkView: NSView {
     var onPointerMoved: ((InkView) -> Void)?
     private(set) var pointer: NSPoint?
     var acceptsInput = true
-    var frozenFrame: FrozenFrame?
+    var frozenFrame: FrozenFrame? { didSet { readPixels = nil } }
+    private var readPixels: FramePixels?
+    // Read on the first redact press, so captures without redact never copy the frame.
+    private var pixels: FramePixels? {
+        if readPixels == nil, let f = frozenFrame { readPixels = FramePixels(f.image) }
+        return readPixels
+    }
     private var shiftHeld = false
     private(set) var flashedLabel: String?
     private var flashToken = 0
@@ -95,7 +101,7 @@ final class InkView: NSView {
         switch tool {
         case .spotlight: return
         case .text: onTextClick?(self, p); return
-        case .redact where frozenFrame == nil: return
+        case .redact where pixels == nil: return
         default: break
         }
         model.begin(tool: tool, style: style, at: p, pinned: shiftHeld)
@@ -107,7 +113,7 @@ final class InkView: NSView {
         guard acceptsInput, model.isDrawing else { return }
         let before = model.strokes.last.map(inkBounds(of:))
         model.extend(to: convert(event.locationInWindow, from: nil))
-        if let s = model.strokes.last, s.tool == .redact, let c = fill(for: s, maxSide: 64) { model.setActiveColor(c) }
+        if let s = model.strokes.last, s.tool == .redact { fill(s, maxSamples: Self.previewSamples) }
         guard let s = model.strokes.last else { return }
         if s.tool == .pen || s.tool == .highlighter {
             // Only the newest segments change; smoothing reaches back two points.
@@ -128,7 +134,7 @@ final class InkView: NSView {
         // A redact box with no fill from the frame is dropped rather than drawn in the dock colour.
         var unfilled = false
         if let s = model.strokes.last, s.tool == .redact {
-            if let c = fill(for: s, maxSide: nil) { model.setActiveColor(c) } else { unfilled = true }
+            unfilled = !fill(s, maxSamples: nil)
         }
         model.end(at: Self.now)
         invalidateActiveStroke()
@@ -140,10 +146,16 @@ final class InkView: NSView {
         startFadeLoopIfNeeded()
     }
 
-    private func fill(for s: Stroke, maxSide: Int?) -> RGBA? {
-        guard let f = frozenFrame, let a = s.points.first, let b = s.points.last else { return nil }
+    // Drag previews read a bounded sample of rows; the end of the drag reads every pixel.
+    static let previewSamples = 1 << 16
+
+    @discardableResult
+    private func fill(_ s: Stroke, maxSamples: Int?) -> Bool {
+        guard let f = frozenFrame, let px = pixels, let a = s.points.first, let b = s.points.last else { return false }
         let r = CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
-        return meanColor(of: f.image, scale: f.scale, in: r, maxSide: maxSide)
+        guard let c = px.mean(in: r, scale: f.scale, maxSamples: maxSamples) else { return false }
+        model.setActiveColor(c, space: px.space)
+        return true
     }
 
     func addText(_ text: String, baseline: NSPoint, style: StrokeStyle) {

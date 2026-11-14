@@ -1,3 +1,5 @@
+import CoreGraphics
+
 public struct RGBA: Codable, Equatable, Sendable {
     public var r, g, b, a: Double
 
@@ -23,9 +25,11 @@ public enum InkPalette {
 public struct StrokeStyle: Equatable, Sendable {
     public var color: RGBA
     public var width: Double
+    // The space `color` is in; nil is sRGB. Redact fills use the frozen frame's own.
+    public var colorSpace: CGColorSpace?
 
-    public init(color: RGBA, width: Double) {
-        self.color = color; self.width = width
+    public init(color: RGBA, width: Double, colorSpace: CGColorSpace? = nil) {
+        self.color = color; self.width = width; self.colorSpace = colorSpace
     }
 }
 

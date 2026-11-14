@@ -31,9 +31,10 @@ public final class InkModel {
         strokes[i].points.append(point)
     }
 
-    public func setActiveColor(_ color: RGBA) {
+    public func setActiveColor(_ color: RGBA, space: CGColorSpace? = nil) {
         guard let i = activeIndex else { return }
         strokes[i].style.color = color
+        strokes[i].style.colorSpace = space
     }
 
     public func end(at time: TimeInterval) {
