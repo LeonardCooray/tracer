@@ -16,6 +16,7 @@ public enum SessionEffect: Equatable, Sendable {
     case registerSessionKeys(capture: Bool)
     case unregisterSessionKeys
     case selectTool(Tool)
+    case stepWidth(thicker: Bool)
     case undo
     case redo
     case clearAll
@@ -28,6 +29,8 @@ public struct Session: Sendable {
     public private(set) var mode: AppMode = .idle
     public private(set) var tool: Tool = .pen
     public private(set) var isEditingText = false
+    // Earlier tools, most recent first; Tab picks the first one the mode offers.
+    private var history: [Tool] = []
     private var fadeDelay: Double
 
     public init(fadeDelay: Double = FadeSetting.defaultDelay) {
@@ -77,16 +80,28 @@ public struct Session: Sendable {
 
     private mutating func fallBackIfUnavailable() -> [SessionEffect] {
         guard !tool.isAvailable(in: mode) else { return [] }
-        tool = .pen
+        use(.pen)
         return [.selectTool(.pen)]
+    }
+
+    private mutating func use(_ t: Tool) {
+        guard t != tool else { return }
+        history.removeAll { $0 == t }
+        history.insert(tool, at: 0)
+        tool = t
     }
 
     private mutating func apply(_ c: SessionCommand) -> [SessionEffect] {
         switch c {
         case .selectTool(let t):
             if !t.isAvailable(in: mode) { return [] }
-            tool = t
+            use(t)
             return [.selectTool(t)]
+        case .toggleTool:
+            guard let t = history.first(where: { $0.isAvailable(in: mode) }) else { return [] }
+            return apply(.selectTool(t))
+        case .thinner, .thicker:
+            return widthSteps(for: tool) == nil ? [] : [.stepWidth(thicker: c == .thicker)]
         case .undo: return [.undo]
         case .redo: return [.redo]
         case .clearAll: return [.clearAll]

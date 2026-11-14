@@ -57,6 +57,12 @@ struct SettingsView: View {
                 }
                 Toggle("Show cursor ring when not drawing", isOn: Binding(
                     get: { model.settings.cursorRingAlwaysOn }, set: { v in model.update { $0.cursorRingAlwaysOn = v } }))
+                LabeledContent("Stroke widths") {
+                    Button("Reset stroke widths") { model.update { $0.strokeWidths = StrokeWidths() } }
+                        .disabled(model.settings.strokeWidths.isEmpty)
+                }
+                Text("[ and ] change the current tool's width while drawing; each tool remembers its own.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Screenshots") {
                 LabeledContent("Save to") {

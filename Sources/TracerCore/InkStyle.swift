@@ -38,3 +38,25 @@ public func defaultWidth(for tool: Tool) -> Double {
     case .spotlight, .redact: 0
     }
 }
+
+// Sizes [ and ] step through; nil for tools without a width. Text sizes are font points.
+public func widthSteps(for tool: Tool) -> [Double]? {
+    switch tool {
+    case .pen, .arrow, .rectangle: [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24]
+    case .highlighter: [8, 12, 18, 24, 32, 40, 48]
+    case .text: [10, 12, 14, 18, 24, 32, 40, 48, 64, 72]
+    case .spotlight, .redact: nil
+    }
+}
+
+public func clampWidth(_ w: Double, for tool: Tool) -> Double? {
+    guard let steps = widthSteps(for: tool), w.isFinite, let lo = steps.first, let hi = steps.last else { return nil }
+    return min(max(w, lo), hi)
+}
+
+// Off-ladder widths (the 3.5 pt rectangle, a context-menu pick) snap to the neighbouring step.
+public func steppedWidth(_ w: Double, for tool: Tool, thicker: Bool) -> Double? {
+    guard let steps = widthSteps(for: tool) else { return nil }
+    let next = thicker ? steps.first { $0 > w } : steps.last { $0 < w }
+    return next ?? clampWidth(w, for: tool)
+}

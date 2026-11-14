@@ -17,6 +17,9 @@ final class InkView: NSView {
     var acceptsInput = true
     var frozenFrame: FrozenFrame?
     private var shiftHeld = false
+    private(set) var flashedLabel: String?
+    private var flashToken = 0
+    static let flashDuration = 1.2
     private var link: CADisplayLink?
 
     static let spotlightRadius = 120.0
@@ -65,6 +68,7 @@ final class InkView: NSView {
     private func chromeRect(at p: NSPoint) -> NSRect {
         let ring = Self.ringDiameter / 2 + 3
         var r = NSRect(x: p.x - ring, y: p.y - ring, width: ring * 2, height: ring * 2)
+        if let f = flashedLabel { r = r.union(labelBox(for: f, at: p).insetBy(dx: -2, dy: -2)) }
         if showsPointerLabel {
             for shift in [false, true] {
                 let text = pointerLabel(tool: tool, fadeDelay: fadeDelay, shiftHeld: shift)
@@ -196,7 +200,27 @@ final class InkView: NSView {
         InkRenderer.draw(visible, in: ctx) { model.opacity(of: $0, at: t) }
         guard let p = pointer else { return }
         if showsCursorRing { drawRing(at: p, in: ctx) }
-        if showsPointerLabel { drawLabel(pointerLabel(tool: tool, fadeDelay: fadeDelay, shiftHeld: shiftHeld), at: p) }
+        if let f = flashedLabel {
+            drawLabel(f, at: p)
+        } else if showsPointerLabel {
+            drawLabel(pointerLabel(tool: tool, fadeDelay: fadeDelay, shiftHeld: shiftHeld), at: p)
+        }
+    }
+
+    // Shows a size change in place of the pointer label, even over a capture, then goes back.
+    func flashLabel(_ text: String?, for seconds: Double = InkView.flashDuration) {
+        flashToken += 1
+        let token = flashToken
+        if let p = pointer { setNeedsDisplay(chromeRect(at: p)) }
+        flashedLabel = text
+        if let p = pointer { setNeedsDisplay(chromeRect(at: p)) }
+        guard text != nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.flashToken == token else { return }
+                self.flashLabel(nil)
+            }
+        }
     }
 
     // With the pointer on another display, this one is dimmed entirely.
